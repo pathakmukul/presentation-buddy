@@ -1,33 +1,40 @@
 import { useState } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 import './LoginPage.css'
 
-const LOGIN_USERNAME = import.meta.env.VITE_LOGIN_USERNAME || 'abc'
-const LOGIN_PASSWORD = import.meta.env.VITE_LOGIN_PASSWORD || '123'
-
-export default function LoginPage({ onLogin }) {
+export default function LoginPage() {
   const [isSignup, setIsSignup] = useState(false)
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const { signIn, signUp } = useAuth()
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
 
-    if (!username || !password) {
+    if (!email || !password) {
       alert('Please fill in all fields')
       return
     }
 
-    if (isSignup) {
-      alert('Account created! Please login.')
-      setIsSignup(false)
-      setUsername('')
-      setPassword('')
-    } else {
-      if (username === LOGIN_USERNAME && password === LOGIN_PASSWORD) {
-        onLogin()
+    setLoading(true)
+
+    try {
+      if (isSignup) {
+        await signUp(email, password)
+        alert('Account created! Please check your email to verify, then login.')
+        setIsSignup(false)
+        setEmail('')
+        setPassword('')
       } else {
-        alert('Invalid credentials')
+        await signIn(email, password)
+        // Auth context will handle the redirect
       }
+    } catch (error) {
+      console.error('Auth error:', error)
+      alert(error.message || 'Authentication failed')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -38,11 +45,12 @@ export default function LoginPage({ onLogin }) {
 
         <form onSubmit={handleSubmit}>
           <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            disabled={loading}
           />
 
           <input
@@ -51,10 +59,11 @@ export default function LoginPage({ onLogin }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
+            disabled={loading}
           />
 
-          <button type="submit" className="primary-btn">
-            {isSignup ? 'Sign Up' : 'Login'}
+          <button type="submit" className="primary-btn" disabled={loading}>
+            {loading ? 'Loading...' : isSignup ? 'Sign Up' : 'Login'}
           </button>
         </form>
 
@@ -62,9 +71,10 @@ export default function LoginPage({ onLogin }) {
           className="switch-btn"
           onClick={() => {
             setIsSignup(!isSignup)
-            setUsername('')
+            setEmail('')
             setPassword('')
           }}
+          disabled={loading}
         >
           {isSignup
             ? 'Already have an account? Login'

@@ -1,20 +1,68 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Info } from 'lucide-react'
+import { ArrowLeft, Mic, MicOff, Phone, PhoneOff } from 'lucide-react'
 import { updateMessageOpacity } from '../utils/fadeMessages'
+import { useVoiceAgent } from '../hooks/useVoiceAgent'
 import './ProjectPage.css'
 
-export default function ProjectPage({ project, onBack, onUpdateProject }) {
+export default function ProjectPage({ project, user, onBack, onUpdateProject }) {
   const [agentInput, setAgentInput] = useState('')
   const [isEditing, setIsEditing] = useState(false)
   const [editedName, setEditedName] = useState(project.name)
   const [isAnimating, setIsAnimating] = useState(false)
   const [messages, setMessages] = useState([])
-  const [videoState, setVideoState] = useState('welcome') // 'welcome', 'idle', 'talk'
+  const [videoState, setVideoState] = useState('welcome')
   const [isFirstLoad, setIsFirstLoad] = useState(true)
-  const [showProjectId, setShowProjectId] = useState(false)
   const messagesContainerRef = useRef(null)
   const videoRef = useRef(null)
-  const projectIdRef = useRef(null)
+
+  // Voice agent integration
+  const voiceAgent = useVoiceAgent()
+
+  // Initialize context when component mounts
+  useEffect(() => {
+    console.log('Project loaded with context:', {
+      userId: user?.id,
+      userName: user?.email,
+      projectId: project.id,
+      projectName: project.name
+    })
+  }, [project.id, user])
+
+  // Handle client actions from agent
+  useEffect(() => {
+    voiceAgent.onClientAction((action, payload) => {
+      console.log('Handling client action:', action, payload)
+
+      switch (action) {
+        case 'display_content':
+          // TODO: Display content based on asset_id and mode
+          console.log('Display content:', payload)
+          break
+
+        case 'transition_section':
+          // TODO: Transition to new section
+          console.log('Transition section:', payload)
+          break
+
+        case 'show_timer':
+          // TODO: Show timer
+          console.log('Show timer:', payload)
+          break
+
+        default:
+          console.log('Unknown action:', action, payload)
+      }
+    })
+  }, [voiceAgent])
+
+  // Update video state based on agent status
+  useEffect(() => {
+    if (voiceAgent.agentStatus === 'speaking') {
+      setVideoState('talk')
+    } else if (voiceAgent.agentStatus === 'listening' && !isFirstLoad) {
+      setVideoState('idle')
+    }
+  }, [voiceAgent.agentStatus, isFirstLoad])
 
   useEffect(() => {
     const handleScroll = () => {
@@ -51,11 +99,25 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
     return () => video.removeEventListener('ended', handleVideoEnd)
   }, [videoState])
 
-  useEffect(() => {
-    if (isAnimating) {
-      setVideoState('talk')
+  const handleConnectVoice = async () => {
+    try {
+      await voiceAgent.connect({
+        userId: user?.id,
+        userName: user?.email || 'User',
+        projectId: project.id,
+        projectName: project.name,
+        presentationId: project.presentation_id, // Auto-created presentation ID
+        mode: 'create' // 'create' or 'present'
+      })
+    } catch (err) {
+      console.error('Failed to connect voice agent:', err)
+      alert('Failed to connect to voice agent. Make sure backend is running.')
     }
-  }, [isAnimating])
+  }
+
+  const handleDisconnectVoice = async () => {
+    await voiceAgent.disconnect()
+  }
 
   const handleSendMessage = (e) => {
     e.preventDefault()
@@ -68,6 +130,11 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
       }
       setMessages([...messages, newMessage])
       setAgentInput('')
+
+      // Send action to voice agent if connected
+      if (voiceAgent.isConnected) {
+        voiceAgent.sendActionToAgent('user_message', { text: agentInput })
+      }
 
       setIsAnimating(true)
 
@@ -89,6 +156,11 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
         ...project,
         name: editedName.trim(),
       })
+
+      // Update context with new project name
+      if (voiceAgent.isConnected) {
+        voiceAgent.updateContext({ projectName: editedName.trim() })
+      }
     }
     setIsEditing(false)
   }
@@ -97,23 +169,6 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
     setEditedName(project.name)
     setIsEditing(false)
   }
-
-  // Close project ID tooltip when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (projectIdRef.current && !projectIdRef.current.contains(event.target)) {
-        setShowProjectId(false)
-      }
-    }
-
-    if (showProjectId) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showProjectId])
 
   return (
     <div className="project-container">
@@ -142,41 +197,71 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h1 onClick={() => setIsEditing(true)} className="project-title">
-              {project.name}
-            </h1>
-            <div className="project-id-container" ref={projectIdRef}>
-              <button
-                onClick={() => setShowProjectId(!showProjectId)}
-                className="info-icon-btn"
-                title="Project ID"
-              >
-                <Info size={16} color="#666" />
-              </button>
-              {showProjectId && (
-                <div className="project-id-bubble">
-                  <div className="project-id-label">Project ID:</div>
-                  <div className="project-id-value">{project.id}</div>
-                  {project.presentation_id && (
-                    <>
-                      <div className="project-id-label" style={{ marginTop: '12px' }}>Presentation ID:</div>
-                      <div className="project-id-value">{project.presentation_id}</div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+          <h1 onClick={() => setIsEditing(true)} className="project-title">
+            {project.name}
+          </h1>
         )}
-        <div style={{ width: '80px' }}></div>
+
+        {/* Voice agent controls */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {voiceAgent.isConnected ? (
+            <>
+              <button
+                onClick={() => voiceAgent.toggleMic()}
+                className="voice-control-btn"
+                title={voiceAgent.isMicEnabled ? 'Mute' : 'Unmute'}
+              >
+                {voiceAgent.isMicEnabled ? (
+                  <Mic size={20} color="#4ade80" />
+                ) : (
+                  <MicOff size={20} color="#ef4444" />
+                )}
+              </button>
+              <button
+                onClick={handleDisconnectVoice}
+                className="voice-control-btn"
+                title="Disconnect"
+              >
+                <PhoneOff size={20} color="#ef4444" />
+              </button>
+              <span style={{ color: '#4ade80', fontSize: '12px' }}>
+                {voiceAgent.agentStatus}
+              </span>
+            </>
+          ) : (
+            <button
+              onClick={handleConnectVoice}
+              className="voice-control-btn"
+              disabled={voiceAgent.isConnecting}
+              title="Connect Voice Agent"
+            >
+              <Phone size={20} color="#e0e0e0" />
+            </button>
+          )}
+        </div>
       </header>
+
+      {voiceAgent.error && (
+        <div style={{
+          background: '#ef4444',
+          color: '#fff',
+          padding: '10px',
+          textAlign: 'center'
+        }}>
+          Error: {voiceAgent.error}
+        </div>
+      )}
 
       <div className="split-view">
         <div className="left-panel">
           <div className={`agent-card ${isAnimating ? 'animating' : ''}`}>
             <div className="panel-header">
               <h2>Agent</h2>
+              {voiceAgent.isConnected && (
+                <span style={{ fontSize: '12px', color: '#888' }}>
+                  Voice Connected
+                </span>
+              )}
             </div>
 
             <video
@@ -209,13 +294,20 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
                     {message.text}
                   </div>
                 ))}
+
+                {/* Show transcript if voice connected */}
+                {voiceAgent.transcript && (
+                  <div className="message agent-message" style={{ fontStyle: 'italic', opacity: 0.7 }}>
+                    [Voice: {voiceAgent.transcript.slice(-100)}]
+                  </div>
+                )}
               </div>
             </div>
 
             <form className="input-container" onSubmit={handleSendMessage}>
               <input
                 type="text"
-                placeholder="Type a message..."
+                placeholder={voiceAgent.isConnected ? "Or type a message..." : "Type a message..."}
                 value={agentInput}
                 onChange={(e) => setAgentInput(e.target.value)}
               />
@@ -235,6 +327,11 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
                 <div className="preview-placeholder">
                   <h3>1080p Preview Area</h3>
                   <p>Your presentation will appear here</p>
+                  {voiceAgent.isConnected && (
+                    <p style={{ color: '#4ade80', marginTop: '10px' }}>
+                      Voice agent ready for content display
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
