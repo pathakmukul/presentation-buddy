@@ -17,19 +17,23 @@ export default async function handler(req, res) {
     return res.status(200).end()
   }
 
-  const { participant_name } = req.body || {}
+  const { participant_name, mode } = req.body || {}
 
-  // Validate VocalBridge API key
-  const apiKey = process.env.VOCALBRIDGE_API_KEY
+  // Select API key based on mode (planning vs presenter)
+  const apiKey = mode === 'presenter'
+    ? process.env.VOCALBRIDGE_PRESENTER_AGENT_KEY
+    : process.env.VOCALBRIDGE_PLANNING_AGENT_KEY
+
   if (!apiKey) {
-    console.error('VOCALBRIDGE_API_KEY environment variable not set')
+    console.error(`VocalBridge API key not set for mode: ${mode || 'planning'}`)
     return res.status(500).json({
-      error: 'Server configuration error. Please contact support.'
+      error: 'Server configuration error. Please contact support.',
+      details: `Missing ${mode === 'presenter' ? 'VOCALBRIDGE_PRESENTER_AGENT_KEY' : 'VOCALBRIDGE_PLANNING_AGENT_KEY'}`
     })
   }
 
   try {
-    console.log('Requesting VocalBridge token for:', participant_name || 'User')
+    console.log('Requesting VocalBridge token for:', participant_name || 'User', `(mode: ${mode || 'planning'})`)
 
     const response = await fetch('https://vocalbridgeai.com/api/v1/token', {
       method: 'POST',

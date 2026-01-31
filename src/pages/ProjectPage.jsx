@@ -301,7 +301,9 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
           id: asset.id,
           type: asset.type,
           url: asset.file_url,
-          description: asset.metadata?.description || 'Content asset',
+          description: asset.type === 'graph'
+            ? asset.metadata?.title
+            : asset.metadata?.description || 'Content asset',
           created_at: asset.created_at
         }))
       }

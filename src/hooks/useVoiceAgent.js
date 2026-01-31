@@ -157,13 +157,14 @@ export function useVoiceAgent() {
     contextRef.current = context
 
     try {
-      // TODO: Get token from your backend endpoint
-      // This endpoint should call VocalBridge API to get LiveKit token
+      // Get token from backend endpoint
+      // Mode determines which VocalBridge agent to connect to (planning or presenter)
       const res = await fetch('/api/voice-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           participant_name: context.userName || 'User',
+          mode: context.mode || 'planning' // 'planning' or 'presenter'
         })
       })
 
