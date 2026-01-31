@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Info } from 'lucide-react'
+import { ArrowLeft, Info, FileText } from 'lucide-react'
 import { updateMessageOpacity } from '../utils/fadeMessages'
+import { supabase } from '../lib/supabase'
 import './ProjectPage.css'
 
 export default function ProjectPage({ project, onBack, onUpdateProject }) {
@@ -12,6 +13,11 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
   const [videoState, setVideoState] = useState('welcome') // 'welcome', 'idle', 'talk'
   const [isFirstLoad, setIsFirstLoad] = useState(true)
   const [showProjectId, setShowProjectId] = useState(false)
+  const [contentAssets, setContentAssets] = useState([])
+  const [presentationPlan, setPresentationPlan] = useState(null)
+  const [loadingAssets, setLoadingAssets] = useState(true)
+  const [selectedAsset, setSelectedAsset] = useState(null)
+  const [showPlanModal, setShowPlanModal] = useState(false)
   const messagesContainerRef = useRef(null)
   const videoRef = useRef(null)
   const projectIdRef = useRef(null)
@@ -114,6 +120,74 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showProjectId])
+
+  // Fetch content assets and presentation plan
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!project.presentation_id) {
+        setLoadingAssets(false)
+        return
+      }
+
+      try {
+        // Fetch content assets
+        const { data: assets, error: assetsError } = await supabase
+          .from('content_assets')
+          .select('*')
+          .eq('presentation_id', project.presentation_id)
+          .eq('status', 'ready')
+          .order('created_at', { ascending: false })
+
+        if (assetsError) {
+          console.error('Error fetching assets:', assetsError)
+        } else {
+          setContentAssets(assets || [])
+        }
+
+        // Fetch presentation plan
+        const { data: plan, error: planError } = await supabase
+          .from('presentation_plans')
+          .select('*')
+          .eq('presentation_id', project.presentation_id)
+          .single()
+
+        if (planError) {
+          console.error('Error fetching plan:', planError)
+        } else {
+          setPresentationPlan(plan)
+        }
+      } catch (err) {
+        console.error('Error fetching data:', err)
+      } finally {
+        setLoadingAssets(false)
+      }
+    }
+
+    fetchData()
+
+    // Real-time subscription for assets
+    const subscription = supabase
+      .channel(`content_${project.presentation_id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'content_assets',
+          filter: `presentation_id=eq.${project.presentation_id}`
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT' && payload.new.status === 'ready') {
+            setContentAssets(prev => [payload.new, ...prev])
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [project.presentation_id])
 
   return (
     <div className="project-container">
@@ -237,7 +311,120 @@ export default function ProjectPage({ project, onBack, onUpdateProject }) {
                   <p>Your presentation will appear here</p>
                 </div>
               </div>
+
+              {!loadingAssets && (contentAssets.length > 0 || presentationPlan) && (
+                <div className="content-assets-overlay">
+                  {presentationPlan && (
+                    <div
+                      className="asset-thumbnail plan-thumbnail"
+                      onClick={() => setShowPlanModal(true)}
+                      title="Presentation Plan"
+                    >
+                      <div className="plan-icon">
+                        <FileText size={32} />
+                      </div>
+                    </div>
+                  )}
+
+                  {contentAssets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className="asset-thumbnail"
+                      onClick={() => setSelectedAsset(asset)}
+                    >
+                      {asset.type === 'manim_animation' ? (
+                        <video
+                          src={asset.file_url}
+                          className="asset-preview"
+                          muted
+                          playsInline
+                        />
+                      ) : (
+                        <img
+                          src={asset.file_url}
+                          alt={asset.type}
+                          className="asset-preview"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {selectedAsset && (
+              <div className="asset-modal" onClick={() => setSelectedAsset(null)}>
+                <div className="asset-modal-content" onClick={(e) => e.stopPropagation()}>
+                  <button className="asset-modal-close" onClick={() => setSelectedAsset(null)}>
+                    ×
+                  </button>
+                  {selectedAsset.type === 'manim_animation' ? (
+                    <video
+                      src={selectedAsset.file_url}
+                      controls
+                      autoPlay
+                      className="asset-modal-media"
+                    />
+                  ) : (
+                    <img
+                      src={selectedAsset.file_url}
+                      alt={selectedAsset.type}
+                      className="asset-modal-media"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {showPlanModal && presentationPlan && (
+              <div className="asset-modal" onClick={() => setShowPlanModal(false)}>
+                <div className="plan-modal-content" onClick={(e) => e.stopPropagation()}>
+                  <button className="asset-modal-close" onClick={() => setShowPlanModal(false)}>
+                    ×
+                  </button>
+                  <div className="plan-modal-inner">
+                    <h2>{presentationPlan.structure.topic}</h2>
+                    <div className="plan-meta">
+                      <span>Duration: {presentationPlan.structure.duration_total}s</span>
+                      <span>Sections: {presentationPlan.structure.sections.length}</span>
+                    </div>
+
+                    <div className="plan-sections">
+                      {presentationPlan.structure.sections.map((section, idx) => (
+                        <div key={section.id} className="plan-section">
+                          <div className="section-header">
+                            <span className="section-number">{idx + 1}</span>
+                            <h3>{section.section}</h3>
+                            <span className="section-speaker">{section.speaker}</span>
+                            <span className="section-duration">{section.duration}s</span>
+                          </div>
+                          <p className="section-content">{section.content}</p>
+                          {section.talking_points && (
+                            <ul className="talking-points">
+                              {section.talking_points.map((point, pidx) => (
+                                <li key={pidx}>{point}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="plan-cues">
+                      <h3>Handoff Cues</h3>
+                      {presentationPlan.handoff_cues.cues.map((cue, idx) => (
+                        <div key={idx} className="cue-item">
+                          <span className="cue-trigger">{cue.trigger}</span>
+                          {cue.phrase && <span className="cue-phrase">"{cue.phrase}"</span>}
+                          {cue.timestamp && <span className="cue-time">{cue.timestamp}s</span>}
+                          <span className="cue-action">→ {cue.action}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
