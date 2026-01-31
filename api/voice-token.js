@@ -31,7 +31,7 @@ export default async function handler(req, res) {
   try {
     console.log('Requesting VocalBridge token for:', participant_name || 'User')
 
-    const response = await fetch('http://vocalbridgeai.com/api/v1/token', {
+    const response = await fetch('https://vocalbridgeai.com/api/v1/token', {
       method: 'POST',
       headers: {
         'X-API-Key': apiKey,

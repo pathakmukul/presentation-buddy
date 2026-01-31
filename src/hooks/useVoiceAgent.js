@@ -15,7 +15,10 @@ export function useVoiceAgent() {
     agentStatus: 'disconnected' // 'disconnected', 'listening', 'speaking'
   })
 
-  const [transcript, setTranscript] = useState('')
+  const [transcripts, setTranscripts] = useState([]) // Array of {id, role, text, timestamp}
+  const [toolCalls, setToolCalls] = useState([]) // Array of {id, tool, args, timestamp}
+  const seenSegmentIds = useRef(new Set()) // Deduplicate segments
+  const seenToolCallIds = useRef(new Set()) // Deduplicate tool calls
   const contextRef = useRef({}) // Store context (user info, presentation_id)
   const onClientActionRef = useRef(null) // Callback for client actions
 
@@ -38,27 +41,55 @@ export function useVoiceAgent() {
       }
     }
 
-    // Handle data from agent (client actions, transcript)
+    // Handle data from agent (client actions, tool calls)
     const handleDataReceived = (payload, participant, kind, topic) => {
       const decoder = new TextDecoder()
       const text = decoder.decode(payload)
 
+      // Log ALL raw data to understand format
+      console.log('📥 RAW DATA RECEIVED:', {
+        topic,
+        participant: participant?.identity,
+        kind,
+        text: text.slice(0, 200) // First 200 chars
+      })
+
       try {
         const data = JSON.parse(text)
-
-        // Handle transcript updates
-        if (topic === 'transcript') {
-          setTranscript(prev => prev + ' ' + text)
-        }
+        console.log('📥 PARSED DATA:', { topic, type: data.type, data })
 
         // Handle client actions from agent
         if (topic === 'client_actions' && data.type === 'client_action') {
-          console.log('Client action received:', data.action, data.payload)
+          console.log('✅ Client action received:', data.action, data.payload)
 
           // Call the registered callback if available
           if (onClientActionRef.current) {
             onClientActionRef.current(data.action, data.payload)
           }
+        }
+
+        // Handle tool calls from debug logs
+        // NOTE: This is currently not receiving data from VocalBridge.
+        // We can see tool calls in their debug mode logs, but they're not being sent via the data channel yet.
+        // Keeping this code in place for when VocalBridge adds support for sending tool call events.
+        // Expected format: { type: 'tool_call', tool: 'tool_name', args: {...}, timestamp: ... }
+        if ((topic === 'tool_call' || topic === 'debug' || data.type === 'tool_call') && data.tool) {
+          const toolCallId = `${data.tool}-${data.timestamp || Date.now()}`
+
+          // Deduplicate
+          if (seenToolCallIds.current.has(toolCallId)) return
+          seenToolCallIds.current.add(toolCallId)
+
+          const newToolCall = {
+            id: toolCallId,
+            tool: data.tool,
+            args: data.args || data.arguments || {},
+            timestamp: data.timestamp || Date.now()
+          }
+
+          console.log('🔧 Tool called:', data.tool)
+
+          setToolCalls(prev => [...prev, newToolCall])
         }
       } catch (err) {
         console.error('Error parsing agent data:', err)
@@ -74,16 +105,45 @@ export function useVoiceAgent() {
       }))
     }
 
+    // Handle live transcription (requires Debug Mode enabled on agent)
+    const handleTranscriptionReceived = (segments, participant, publication) => {
+      segments.forEach(segment => {
+        // Only process final segments, skip interim
+        if (!segment.final) return
+
+        // Deduplicate by segment ID
+        if (seenSegmentIds.current.has(segment.id)) return
+        seenSegmentIds.current.add(segment.id)
+
+        // Detect speaker from participant identity
+        const isAgent = participant?.identity?.includes('agent') || participant?.identity?.includes('level0')
+        const role = isAgent ? 'agent' : 'user'
+
+        const newTranscript = {
+          id: segment.id,
+          role: role,
+          text: segment.text,
+          timestamp: Date.now()
+        }
+
+        console.log('📝 Transcript:', role, segment.text)
+
+        setTranscripts(prev => [...prev, newTranscript])
+      })
+    }
+
     room.on(RoomEvent.TrackSubscribed, handleTrackSubscribed)
     room.on(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed)
     room.on(RoomEvent.DataReceived, handleDataReceived)
     room.on(RoomEvent.Disconnected, handleDisconnected)
+    room.on(RoomEvent.TranscriptionReceived, handleTranscriptionReceived)
 
     return () => {
       room.off(RoomEvent.TrackSubscribed, handleTrackSubscribed)
       room.off(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed)
       room.off(RoomEvent.DataReceived, handleDataReceived)
       room.off(RoomEvent.Disconnected, handleDisconnected)
+      room.off(RoomEvent.TranscriptionReceived, handleTranscriptionReceived)
       room.disconnect()
     }
   }, [room])
@@ -142,24 +202,25 @@ export function useVoiceAgent() {
   }, [room])
 
   /**
-   * Send context data to agent via data channel
+   * Send context data to agent via data channel as client action
    * This allows the agent to know user details and presentation info
    */
   const sendContextToAgent = useCallback(async (context) => {
     if (!room.localParticipant) return
 
     const contextMessage = JSON.stringify({
-      type: 'context_update',
-      context: context,
+      type: 'client_action',
+      action: 'update_context',
+      payload: context,
       timestamp: Date.now()
     })
 
     await room.localParticipant.publishData(
       new TextEncoder().encode(contextMessage),
-      { reliable: true, topic: 'context' }
+      { reliable: true, topic: 'client_actions' }
     )
 
-    console.log('Context sent to agent:', context)
+    console.log('📤 Context sent to agent (update_context):', context)
   }, [room])
 
   /**
@@ -206,7 +267,10 @@ export function useVoiceAgent() {
 
   const disconnect = useCallback(async () => {
     await room.disconnect()
-    setTranscript('')
+    setTranscripts([])
+    setToolCalls([])
+    seenSegmentIds.current.clear()
+    seenToolCallIds.current.clear()
     contextRef.current = {}
   }, [room])
 
@@ -219,7 +283,8 @@ export function useVoiceAgent() {
   return {
     // State
     ...state,
-    transcript,
+    transcripts, // Array of {id, role, text, timestamp}
+    toolCalls, // Array of {id, tool, args, timestamp}
 
     // Methods
     connect,
