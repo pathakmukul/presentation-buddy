@@ -10,6 +10,7 @@ function AppContent() {
   const [selectedProject, setSelectedProject] = useState(null)
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
 
   // Fetch projects from Supabase with localStorage cache
   useEffect(() => {
@@ -37,23 +38,56 @@ function AppContent() {
           }
         }
 
-        // Fetch from Supabase with presentations
+        // Fetch projects with presentations
         const { data, error } = await supabase
           .from('projects')
           .select(`
             *,
-            presentations!presentations_project_id_fkey(id)
+            presentations(id)
           `)
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
 
         if (error) throw error
 
-        // Flatten presentation_id for easier access
-        const projectsWithPresentationId = (data || []).map(project => ({
-          ...project,
-          presentation_id: project.presentations?.[0]?.id || null
-        }))
+        // Fetch content_assets for all presentations
+        const presentationIds = (data || [])
+          .map(p => p.presentations?.[0]?.id)
+          .filter(Boolean)
+
+        let assetsMap = {}
+        if (presentationIds.length > 0) {
+          const { data: assets } = await supabase
+            .from('content_assets')
+            .select('presentation_id, file_url, type')
+            .in('presentation_id', presentationIds)
+            .in('type', ['image', 'graph', 'manim_animation'])
+            .eq('status', 'ready')
+
+          // Group assets by presentation_id
+          assetsMap = (assets || []).reduce((acc, asset) => {
+            if (!acc[asset.presentation_id]) acc[asset.presentation_id] = []
+            acc[asset.presentation_id].push(asset)
+            return acc
+          }, {})
+        }
+
+        // Flatten and add thumbnail with priority: image > graph > video
+        const projectsWithPresentationId = (data || []).map(project => {
+          const presentationId = project.presentations?.[0]?.id
+          const assets = assetsMap[presentationId] || []
+
+          const findByType = (type) => assets.find(a => a.type === type)
+          const thumbnail = findByType('image') || findByType('graph') || findByType('manim_animation')
+
+
+          return {
+            ...project,
+            presentation_id: presentationId || null,
+            thumbnail_url: thumbnail?.file_url || null,
+            thumbnail_type: thumbnail?.type || null
+          }
+        })
 
         setProjects(projectsWithPresentationId)
 
@@ -76,7 +110,7 @@ function AppContent() {
     if (!authLoading) {
       fetchProjects()
     }
-  }, [user, authLoading])
+  }, [user, authLoading, refreshTrigger])
 
   const handleLogout = async () => {
     try {
@@ -193,8 +227,50 @@ function AppContent() {
     }
   }
 
+  const handleDeleteProject = async (project) => {
+    try {
+      // Delete presentation (cascades to content_assets, presentation_plans, etc.)
+      if (project.presentation_id) {
+        const { error: presentationError } = await supabase
+          .from('presentations')
+          .delete()
+          .eq('id', project.presentation_id)
+
+        if (presentationError) {
+          console.error('Error deleting presentation:', presentationError)
+        }
+      }
+
+      // Delete the project
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', project.id)
+
+      if (error) throw error
+
+      // Update state and cache
+      const updatedProjects = projects.filter(p => p.id !== project.id)
+      setProjects(updatedProjects)
+
+      const cacheKey = `projects_${user.id}`
+      const lastSyncKey = `projects_last_sync_${user.id}`
+      localStorage.setItem(cacheKey, JSON.stringify(updatedProjects))
+      localStorage.setItem(lastSyncKey, Date.now().toString())
+    } catch (error) {
+      console.error('Error deleting project:', error)
+      alert('Failed to delete project')
+    }
+  }
+
   const handleBackToDashboard = () => {
+    // Invalidate cache and trigger refetch for fresh thumbnails
+    if (user) {
+      const lastSyncKey = `projects_last_sync_${user.id}`
+      localStorage.removeItem(lastSyncKey)
+    }
     setSelectedProject(null)
+    setRefreshTrigger(prev => prev + 1)
   }
 
   if (authLoading || loading) {
@@ -233,6 +309,7 @@ function AppContent() {
       user={user}
       onCreateProject={handleCreateProject}
       onSelectProject={handleSelectProject}
+      onDeleteProject={handleDeleteProject}
       onLogout={handleLogout}
     />
   )

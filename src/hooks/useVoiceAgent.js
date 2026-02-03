@@ -21,22 +21,121 @@ export function useVoiceAgent() {
   const seenToolCallIds = useRef(new Set()) // Deduplicate tool calls
   const contextRef = useRef({}) // Store context (user info, presentation_id)
   const onClientActionRef = useRef(null) // Callback for client actions
+  const audioContextRef = useRef(null) // Web Audio API context for audio detection
+  const audioAnalyserRef = useRef(null) // Audio analyser
+  const audioCheckIntervalRef = useRef(null) // Interval for checking audio level
 
   // Handle agent audio track subscription
   useEffect(() => {
     const handleTrackSubscribed = (track, publication, participant) => {
-      if (track.kind === Track.Kind.Audio) {
-        console.log('Agent audio connected')
+      // Only process audio tracks from the AGENT (remote participant), not local or other sources
+      const isAgent = participant?.identity?.includes('agent') || participant?.identity?.includes('level0')
+
+      if (track.kind === Track.Kind.Audio && isAgent) {
         const audioEl = track.attach()
+        audioEl.autoplay = true
         document.body.appendChild(audioEl)
 
-        setState(s => ({ ...s, agentStatus: 'speaking' }))
+
+        // Set up audio analysis for speech detection
+        try {
+          // Use existing AudioContext or create new one
+          if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)()
+          }
+
+          const audioContext = audioContextRef.current
+
+          // Resume if suspended (browser autoplay policy)
+          if (audioContext.state === 'suspended') {
+            audioContext.resume()
+          }
+
+          const source = audioContext.createMediaStreamSource(track.mediaStream)
+          const analyser = audioContext.createAnalyser()
+          analyser.fftSize = 256
+          analyser.smoothingTimeConstant = 0.8
+
+          source.connect(analyser)
+          // Don't connect to destination - LiveKit already handles playback
+
+          audioAnalyserRef.current = analyser
+
+          // Check audio level periodically with smoothing
+          const dataArray = new Uint8Array(analyser.frequencyBinCount)
+          let speakingCount = 0
+          let silenceCount = 0
+          const SPEAKING_THRESHOLD = 3 // Start speaking after 3 consecutive detections (300ms)
+          const SILENCE_THRESHOLD = 5 // Stop speaking after 5 consecutive silences (500ms)
+
+          audioCheckIntervalRef.current = setInterval(() => {
+            // Guard: don't process if analyser is gone
+            if (!audioAnalyserRef.current) {
+              return
+            }
+
+            analyser.getByteFrequencyData(dataArray)
+
+            // Calculate average volume
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+
+            // Detect if audio is present (threshold filters out codec noise/artifacts)
+            const hasAudio = average > 12
+
+            // Use counters to smooth transitions
+            if (hasAudio) {
+              speakingCount++
+              silenceCount = 0
+            } else {
+              silenceCount++
+              speakingCount = 0
+            }
+
+            setState(s => {
+              // Guard: don't update if disconnected
+              if (s.agentStatus === 'disconnected' || !s.isConnected) {
+                return s
+              }
+
+              let newStatus = s.agentStatus
+
+              // Switch to speaking only after consistent audio
+              if (s.agentStatus !== 'speaking' && speakingCount >= SPEAKING_THRESHOLD) {
+                newStatus = 'speaking'
+              }
+              // Switch to listening only after consistent silence
+              else if (s.agentStatus === 'speaking' && silenceCount >= SILENCE_THRESHOLD) {
+                newStatus = 'listening'
+              }
+
+              return s.agentStatus !== newStatus ? { ...s, agentStatus: newStatus } : s
+            })
+          }, 100) // Check every 100ms
+
+        } catch (err) {
+          console.error('❌ Failed to set up audio detection:', err)
+          setState(s => ({ ...s, agentStatus: 'listening' }))
+        }
       }
     }
 
-    const handleTrackUnsubscribed = (track) => {
-      if (track.kind === Track.Kind.Audio) {
+    const handleTrackUnsubscribed = (track, publication, participant) => {
+      const isAgent = participant?.identity?.includes('agent') || participant?.identity?.includes('level0')
+
+      if (track.kind === Track.Kind.Audio && isAgent) {
         track.detach().forEach(el => el.remove())
+
+        // Clean up audio detection
+        if (audioCheckIntervalRef.current) {
+          clearInterval(audioCheckIntervalRef.current)
+          audioCheckIntervalRef.current = null
+        }
+        if (audioContextRef.current) {
+          audioContextRef.current.close()
+          audioContextRef.current = null
+        }
+        audioAnalyserRef.current = null
+
         setState(s => ({ ...s, agentStatus: 'listening' }))
       }
     }
@@ -139,6 +238,17 @@ export function useVoiceAgent() {
     room.on(RoomEvent.TranscriptionReceived, handleTranscriptionReceived)
 
     return () => {
+      // Clean up audio detection on unmount
+      if (audioCheckIntervalRef.current) {
+        clearInterval(audioCheckIntervalRef.current)
+        audioCheckIntervalRef.current = null
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+        audioContextRef.current = null
+      }
+      audioAnalyserRef.current = null
+
       room.off(RoomEvent.TrackSubscribed, handleTrackSubscribed)
       room.off(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed)
       room.off(RoomEvent.DataReceived, handleDataReceived)
@@ -267,6 +377,25 @@ export function useVoiceAgent() {
   }, [])
 
   const disconnect = useCallback(async () => {
+    // Clean up audio detection FIRST before disconnecting
+    if (audioCheckIntervalRef.current) {
+      clearInterval(audioCheckIntervalRef.current)
+      audioCheckIntervalRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    audioAnalyserRef.current = null
+
+    // Set state to disconnected before room disconnect
+    setState(s => ({
+      ...s,
+      isConnected: false,
+      isMicEnabled: false,
+      agentStatus: 'disconnected'
+    }))
+
     await room.disconnect()
     setTranscripts([])
     setToolCalls([])

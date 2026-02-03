@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Info, FileText, Play, Pause, Volume2, Mic, MicOff, Phone, PhoneOff } from 'lucide-react'
+import { ArrowLeft, Info, FileText, Play, Pause, Volume2, Mic, MicOff, Phone, PhoneOff, File } from 'lucide-react'
 import { updateMessageOpacity } from '../utils/fadeMessages'
 import { supabase } from '../lib/supabase'
 import { useVoiceAgent } from '../hooks/useVoiceAgent'
@@ -24,11 +24,16 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   const [shouldRecord, setShouldRecord] = useState(false)
   const [showPresentControls, setShowPresentControls] = useState(false)
   const [displayedContent, setDisplayedContent] = useState(null)
+  const [displayedText, setDisplayedText] = useState(null)
+  const [contentZIndex, setContentZIndex] = useState(1)
   const [newAssetIds, setNewAssetIds] = useState(new Set())
+  const [isCachingAssets, setIsCachingAssets] = useState(false)
+  const [cachedAssetUrls, setCachedAssetUrls] = useState({}) // Maps asset.id -> cached blob URL
   const messagesContainerRef = useRef(null)
   const videoRef = useRef(null)
   const projectIdRef = useRef(null)
   const presentDropdownRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   // Voice agents
   const voiceAgent = useVoiceAgent() // Planning agent for create mode
@@ -43,6 +48,9 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
     if (container) {
       container.addEventListener('scroll', handleScroll)
       handleScroll()
+
+      // Auto-scroll to bottom when new messages arrive
+      container.scrollTop = container.scrollHeight
     }
 
     return () => {
@@ -77,12 +85,15 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
 
   // Sync video state with planning agent status
   useEffect(() => {
+    // Don't change video during first load (welcome video)
+    if (isFirstLoad) return
+
     if (voiceAgent.agentStatus === 'speaking') {
       setVideoState('talk')
     } else if (voiceAgent.agentStatus === 'listening' || voiceAgent.agentStatus === 'thinking') {
       setVideoState('idle')
     }
-  }, [voiceAgent.agentStatus])
+  }, [voiceAgent.agentStatus, isFirstLoad])
 
   const handleSendMessage = (e) => {
     e.preventDefault()
@@ -242,13 +253,27 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   // Planning agent connection
   const handleConnectVoice = async () => {
     try {
+      // Fetch source documents for planning agent context
+      const { data: sourceDocuments } = await supabase
+        .from('content_assets')
+        .select('*')
+        .eq('presentation_id', project.presentation_id)
+        .eq('type', 'document')
+        .order('created_at', { ascending: true })
+
       await voiceAgent.connect({
         userId: user?.id,
         userName: user?.email || 'User',
         projectId: project.id,
         projectName: project.name,
         presentationId: project.presentation_id,
-        mode: 'create'
+        mode: 'create',
+        sourceDocuments: sourceDocuments?.map(doc => ({
+          id: doc.id,
+          filename: doc.metadata?.filename || 'document',
+          file_type: doc.metadata?.file_type || 'txt',
+          content: doc.metadata?.extracted_text || ''
+        })) || []
       })
     } catch (err) {
       console.error('Failed to connect planning agent:', err)
@@ -264,8 +289,107 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
     }
   }
 
+  // Upload handlers
+  const handleUploadClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    const ext = file.name.split('.').pop().toLowerCase()
+    const allowedTypes = ['txt', 'png', 'jpg', 'jpeg', 'gif', 'webp']
+
+    if (!allowedTypes.includes(ext)) {
+      alert(`Unsupported file type. Allowed: ${allowedTypes.join(', ')}`)
+      return
+    }
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('presentation_id', project.presentation_id)
+
+      // For images, optionally add description
+      if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+        const description = prompt('Enter a description for this image (optional):') || file.name
+        formData.append('description', description)
+      }
+
+      const response = await fetch('/api/upload-content', {
+        method: 'POST',
+        body: formData
+      })
+
+      const result = await response.json()
+
+      if (!result.success) {
+        throw new Error(result.error || 'Upload failed')
+      }
+
+      // Real-time subscription will auto-refresh the list
+      // Show success message
+      const assetType = result.asset.type === 'image' ? 'Image' : 'Document'
+      alert(`${assetType} uploaded successfully!`)
+
+    } catch (error) {
+      console.error('Upload error:', error)
+      alert(`Upload failed: ${error.message}`)
+    } finally {
+      // Reset file input
+      event.target.value = ''
+    }
+  }
+
+  // Cache all assets in browser before starting presentation
+  const cacheAllAssets = async () => {
+    setIsCachingAssets(true)
+    const cache = await caches.open('presentation-assets')
+    const cachedUrls = {}
+
+    try {
+      for (const asset of contentAssets) {
+        if (asset.type === 'document') continue // Skip documents
+
+        try {
+          // Check if already in cache
+          const cached = await cache.match(asset.file_url)
+          if (cached) {
+            const blob = await cached.blob()
+            cachedUrls[asset.id] = URL.createObjectURL(blob)
+            console.log('✅ Already cached:', asset.id)
+            continue
+          }
+
+          // Fetch and cache
+          const response = await fetch(asset.file_url)
+          const blob = await response.blob()
+          await cache.put(asset.file_url, new Response(blob))
+
+          // Create blob URL for instant access
+          cachedUrls[asset.id] = URL.createObjectURL(blob)
+          console.log('✅ Cached asset:', asset.id)
+        } catch (err) {
+          console.error('Failed to cache asset:', asset.id, err)
+        }
+      }
+
+      setCachedAssetUrls(cachedUrls)
+      console.log(`✅ Cached ${Object.keys(cachedUrls).length} assets`)
+    } catch (err) {
+      console.error('Caching error:', err)
+    } finally {
+      setIsCachingAssets(false)
+    }
+  }
+
   // Presentation mode handlers
   const startPresentation = async (withRecording = false) => {
+    // Cache all assets first
+    await cacheAllAssets()
+
     setShouldRecord(withRecording)
     setIsPresentMode(true)
     setShowPresentDropdown(false)
@@ -297,18 +421,22 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
           })),
           handoff_cues: presentationPlan.handoff_cues.cues
         } : null,
-        contentAssets: contentAssets.map(asset => ({
-          id: asset.id,
-          type: asset.type,
-          url: asset.file_url,
-          description: asset.type === 'graph'
-            ? asset.metadata?.title
-            : asset.metadata?.description || 'Content asset',
-          created_at: asset.created_at
-        }))
+        contentAssets: contentAssets
+          .filter(asset => asset.type !== 'document') // Exclude documents (only for planning agent)
+          .map(asset => ({
+            id: asset.id,
+            type: asset.type,
+            url: asset.file_url,
+            description: asset.type === 'graph'
+              ? asset.metadata?.title
+              : asset.metadata?.description || 'Content asset',
+            created_at: asset.created_at
+          }))
       }
 
       console.log('🎯 Connecting presenter agent:', presenterContext)
+      // Note: We pass context on connect, but VocalBridge agents request it via update_context action
+      // The actual contentAssets will be sent when agent calls update_context (handled in handleClientAction)
       await presenterAgent.connect(presenterContext)
     } catch (err) {
       console.error('Failed to connect presenter agent:', err)
@@ -316,13 +444,19 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   }
 
   const exitPresentMode = async () => {
-    setIsPresentMode(false)
-    setShouldRecord(false)
-    setDisplayedContent(null)
-
+    // Disconnect presenter agent first
     if (presenterAgent.isConnected) {
       await presenterAgent.disconnect()
     }
+
+    setIsPresentMode(false)
+    setShouldRecord(false)
+    setDisplayedContent(null)
+    setDisplayedText(null)
+
+    // Revoke blob URLs to free memory
+    Object.values(cachedAssetUrls).forEach(url => URL.revokeObjectURL(url))
+    setCachedAssetUrls({})
 
     if (document.fullscreenElement) {
       document.exitFullscreen()
@@ -341,13 +475,23 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
           if (payload.asset_id) {
             const asset = contentAssets.find(a => a.id === payload.asset_id)
             if (asset) {
-              setDisplayedContent(asset)
+              setContentZIndex(prev => prev + 1)
+              // Use cached blob URL if available, otherwise fallback to original URL
+              const fileUrl = cachedAssetUrls[asset.id] || asset.file_url
+              setDisplayedContent({
+                ...asset,
+                file_url: fileUrl,
+                zIndex: contentZIndex + 1
+              })
+              console.log('📺 Displaying from cache:', !!cachedAssetUrls[asset.id])
             }
           } else if (payload.url) {
+            setContentZIndex(prev => prev + 1)
             setDisplayedContent({
               type: payload.type || 'image',
               file_url: payload.url,
-              metadata: { description: payload.description }
+              metadata: { description: payload.description },
+              zIndex: contentZIndex + 1
             })
           }
           break
@@ -356,12 +500,46 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
           setDisplayedContent(null)
           break
 
+        case 'display_text':
+          // Display text/talking points on screen
+          if (payload.text || payload.title || payload.points) {
+            setDisplayedText({
+              title: payload.title || null,
+              text: payload.text || null,
+              points: payload.points || null,
+              style: payload.style || 'default'
+            })
+          }
+          break
+
+        case 'hide_text':
+          setDisplayedText(null)
+          break
+
         case 'transition_section':
           console.log('🔀 Transition to section:', payload.section_id)
           break
 
         case 'show_timer':
           console.log('⏱️ Show timer:', payload.duration_seconds)
+          break
+
+        case 'update_context':
+          // Agent is requesting context - send contentAssets
+          console.log('🔄 Agent requested context, sending contentAssets...')
+          presenterAgent.sendActionToAgent('update_context', {
+            contentAssets: contentAssets
+              .filter(asset => asset.type !== 'document')
+              .map(asset => ({
+                id: asset.id,
+                type: asset.type,
+                url: asset.file_url,
+                description: asset.type === 'graph'
+                  ? asset.metadata?.title
+                  : asset.metadata?.description || 'Content asset',
+                created_at: asset.created_at
+              }))
+          })
           break
 
         default:
@@ -382,8 +560,8 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
 
     const handleMouseMove = (e) => {
       const isBottomRight =
-        e.clientX > window.innerWidth - 150 &&
-        e.clientY > window.innerHeight - 150
+        e.clientX > window.innerWidth - 200 &&
+        e.clientY > window.innerHeight - 200
 
       setShowPresentControls(isBottomRight)
     }
@@ -470,15 +648,16 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
 
     fetchData()
 
-    // Real-time subscription for assets
+    // Real-time subscription for assets and plan
     if (!project.presentation_id) return
 
-    console.log('🔴 Setting up real-time subscription for:', project.presentation_id)
+    console.log('🔴 Setting up real-time subscriptions for:', project.presentation_id)
 
-    const channel = supabase.channel(`content_assets_${project.presentation_id}`)
+    const assetsChannel = supabase.channel(`content_assets_${project.presentation_id}`)
+    const planChannel = supabase.channel(`presentation_plan_${project.presentation_id}`)
 
-    // Listen to ALL events on content_assets (no filter first to debug)
-    channel.on(
+    // Listen to content_assets changes
+    assetsChannel.on(
       'postgres_changes',
       {
         event: '*',
@@ -542,21 +721,66 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
       }
     )
 
-    const subscription = channel.subscribe((status, err) => {
-      console.log('🔵 Subscription status:', status)
+    // Listen to presentation_plans changes (same pattern as assets - no filter, check in callback)
+    planChannel.on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'presentation_plans'
+      },
+      (payload) => {
+        console.log('📋 Presentation plan event:', payload.eventType, payload)
+
+        // Manual filter - same pattern as assets
+        const record = payload.eventType === 'DELETE' ? payload.old : payload.new
+        if (record?.presentation_id !== project.presentation_id) {
+          console.log('   ❌ Skipping - different presentation')
+          return
+        }
+
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          console.log('✅ Presentation plan updated')
+          setPresentationPlan(payload.new)
+        } else if (payload.eventType === 'DELETE') {
+          console.log('✅ Presentation plan deleted')
+          setPresentationPlan(null)
+        }
+      }
+    )
+
+    const assetsSubscription = assetsChannel.subscribe((status, err) => {
+      console.log('🔵 Assets subscription status:', status)
       if (err) {
-        console.error('❌ Subscription error:', err)
+        console.error('❌ Assets subscription error:', err)
+      }
+    })
+
+    const planSubscription = planChannel.subscribe((status, err) => {
+      console.log('🔵 Plan subscription status:', status)
+      if (err) {
+        console.error('❌ Plan subscription error:', err)
       }
     })
 
     return () => {
       console.log('🔴 Unsubscribing from real-time updates')
-      subscription.unsubscribe()
+      assetsSubscription.unsubscribe()
+      planSubscription.unsubscribe()
     }
   }, [project.presentation_id])
 
   return (
     <div className="project-container">
+      {/* Hidden file input for uploads */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        accept=".txt,.png,.jpg,.jpeg,.gif,.webp"
+        style={{ display: 'none' }}
+      />
+
       <header className="project-header">
         <button onClick={onBack} className="back-btn">
           <ArrowLeft size={20} color="#e0e0e0" />
@@ -614,9 +838,10 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
           <button
             className="present-btn"
             onClick={() => setShowPresentDropdown(!showPresentDropdown)}
+            disabled={isCachingAssets}
           >
             <Play size={18} />
-            <span>Present</span>
+            <span>{isCachingAssets ? 'Loading...' : 'Present'}</span>
           </button>
 
           {showPresentDropdown && (
@@ -667,25 +892,44 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
               </div>
             )}
 
-            <video
-              ref={videoRef}
-              className="agent-video"
-              autoPlay
-              muted
-              playsInline
-              key={videoState}
-            >
-              <source
-                src={
-                  videoState === 'welcome'
-                    ? '/videos/hello.mp4'
-                    : videoState === 'talk'
-                    ? '/videos/Talk.mp4'
-                    : '/videos/idle.mp4'
-                }
-                type="video/mp4"
-              />
-            </video>
+            <div className="agent-video-container">
+              {/* Welcome video - only shows on first load */}
+              {isFirstLoad && (
+                <video
+                  ref={videoRef}
+                  className="agent-video active"
+                  autoPlay
+                  muted
+                  playsInline
+                  loop={false}
+                  src="/videos/hello.mp4"
+                />
+              )}
+              {/* Idle video - always plays as base layer after welcome */}
+              {!isFirstLoad && (
+                <>
+                  <video
+                    className="agent-video active"
+                    autoPlay
+                    muted
+                    playsInline
+                    loop
+                    src="/videos/idle.mp4"
+                    style={{ zIndex: 1 }}
+                  />
+                  {/* Talk video - always plays, visible only when speaking */}
+                  <video
+                    className={`agent-video ${voiceAgent.agentStatus === 'speaking' ? 'active' : ''}`}
+                    autoPlay
+                    muted
+                    playsInline
+                    loop
+                    src="/videos/Talk.mp4"
+                    style={{ zIndex: 2 }}
+                  />
+                </>
+              )}
+            </div>
 
             <div className="messages-container" ref={messagesContainerRef}>
               <div className="messages-wrapper">
@@ -752,7 +996,11 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
                       </>
                     )}
                   </button>
-                  <button className="voice-btn secondary" style={{ flex: 1 }}>
+                  <button
+                    onClick={handleUploadClick}
+                    className="voice-btn secondary"
+                    style={{ flex: 1 }}
+                  >
                     <span>Upload Document</span>
                   </button>
                 </div>
@@ -820,11 +1068,15 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
                   {contentAssets.map((asset) => (
                     <div
                       key={asset.id}
-                      className={`asset-thumbnail ${newAssetIds.has(asset.id) ? 'new-asset' : ''}`}
+                      className={`asset-thumbnail ${newAssetIds.has(asset.id) ? 'new-asset' : ''} ${asset.type === 'document' ? 'document-thumbnail' : ''}`}
                       onClick={() => setSelectedAsset(asset)}
                     >
                       {asset.type === 'manim_animation' ? (
                         <VideoThumbnail src={asset.file_url} />
+                      ) : asset.type === 'document' ? (
+                        <div className="document-icon">
+                          <File size={32} />
+                        </div>
                       ) : (
                         <img
                           src={asset.file_url}
@@ -858,6 +1110,13 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
                       autoPlay
                       className="asset-modal-media"
                     />
+                  ) : selectedAsset.type === 'document' ? (
+                    <div className="document-content">
+                      <h3>{selectedAsset.metadata?.filename || 'Document'}</h3>
+                      <pre className="document-text">
+                        {selectedAsset.metadata?.extracted_text || 'No content available'}
+                      </pre>
+                    </div>
                   ) : (
                     <img
                       src={selectedAsset.file_url}
@@ -926,14 +1185,15 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
       {isPresentMode && (
         <div className="presentation-mode">
           <div className="presentation-canvas">
-            {displayedContent ? (
-              <div className="presented-content">
+            {displayedContent && (
+              <div className="presented-content" style={{ zIndex: displayedContent.zIndex || 1 }}>
                 {displayedContent.type === 'manim_animation' ? (
                   <video
                     src={displayedContent.file_url}
                     controls
                     autoPlay
                     className="presented-media"
+                    onEnded={() => setDisplayedContent(null)}
                   />
                 ) : (
                   <img
@@ -943,7 +1203,25 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
                   />
                 )}
               </div>
-            ) : (
+            )}
+            {displayedText && (
+              <div className="presented-text">
+                {displayedText.title && (
+                  <h1 className="text-title">{displayedText.title}</h1>
+                )}
+                {displayedText.text && (
+                  <p className="text-body">{displayedText.text}</p>
+                )}
+                {displayedText.points && Array.isArray(displayedText.points) && (
+                  <ul className="text-points">
+                    {displayedText.points.map((point, idx) => (
+                      <li key={idx}>{point}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {!displayedContent && !displayedText && (
               <div className="presentation-placeholder">
                 {shouldRecord && (
                   <div className="recording-indicator">

@@ -81,62 +81,305 @@
 .tile-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  gap: 24px;
   padding: 40px;
 }
 
 .tile {
   aspect-ratio: 1.2;
-  border-radius: 12px;
+  border-radius: 16px;
   cursor: pointer;
-  transition: transform 0.2s;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  position: relative;
+  overflow: hidden;
 }
 
 .tile:hover {
-  transform: translateY(-4px);
+  transform: translateY(-6px);
 }
 
+/* New Tile Styles */
 .new-tile {
   background: #0a0a0a;
-  border: 2px dashed #3a3a3a;
+  border: 2px dashed #2a2a2a;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+.new-tile:hover {
+  border-color: #4a4a4a;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.new-tile-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
   align-items: center;
 }
 
 .plus-icon {
   font-size: 48px;
-  color: #666;
+  color: #4a4a4a;
   font-weight: 300;
+  transition: color 0.3s ease, transform 0.3s ease;
+}
+
+.new-tile:hover .plus-icon {
+  color: #888;
+  transform: scale(1.1);
 }
 
 .new-text {
-  font-size: 18px;
-  color: #666;
+  font-size: 15px;
+  color: #4a4a4a;
   margin-top: 8px;
+  font-weight: 500;
+  transition: color 0.3s ease;
 }
 
+.new-tile:hover .new-text {
+  color: #888;
+}
+
+/* Project Tile Styles */
 .project-tile {
-  background: #1a1a1a;
-  padding: 20px;
+  background: #111111;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-end;
+  align-items: flex-start;
+  border: 1px solid #1e1e1e;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.project-tile:hover {
+  border-color: #333;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Thumbnail Background */
+.tile-thumbnail {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.15;
+  transition: opacity 0.3s ease;
+}
+
+/* Video Thumbnail - shows first frame */
+.tile-thumbnail-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.15;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.project-tile.has-thumbnail:hover .tile-thumbnail-video {
+  opacity: 0.25;
+}
+
+.project-tile.has-thumbnail::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.15) 0%,
+    rgba(0, 0, 0, 0.35) 60%,
+    rgba(0, 0, 0, 0.5) 100%
+  );
+  z-index: 1;
+}
+
+.project-tile.has-thumbnail:hover .tile-thumbnail {
+  opacity: 0.25;
+}
+
+.project-tile.has-thumbnail .tile-bg-pattern {
+  display: none;
+}
+
+/* Background Pattern - subtle gray circles */
+.tile-bg-pattern {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.pattern-circle {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, #252525 0%, transparent 70%);
+  transition: transform 0.5s ease, opacity 0.3s ease;
+}
+
+.circle-1 {
+  width: 140px;
+  height: 140px;
+  top: -50px;
+  right: -50px;
+  opacity: 0.5;
+}
+
+.circle-2 {
+  width: 80px;
+  height: 80px;
+  bottom: -20px;
+  left: -20px;
+  opacity: 0.3;
+}
+
+.project-tile:hover .circle-1 {
+  transform: scale(1.15);
+  opacity: 0.7;
+}
+
+.project-tile:hover .circle-2 {
+  transform: scale(1.2);
+  opacity: 0.5;
+}
+
+/* Tile Content */
+.tile-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+}
+
+.tile-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  display: flex;
   align-items: center;
-  border: 1px solid #3a3a3a;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  justify-content: center;
+  margin-bottom: 16px;
+  color: #666;
+  transition: transform 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+.project-tile:hover .tile-icon {
+  transform: scale(1.05);
+  border-color: #3a3a3a;
+  color: #999;
 }
 
 .project-tile h3 {
-  font-size: 18px;
+  font-size: 17px;
   color: #e0e0e0;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  font-weight: 600;
 }
 
 .project-tile p {
-  font-size: 14px;
-  color: #888;
+  font-size: 13px;
+  color: #666;
+}
+
+/* Shine Effect */
+.tile-shine {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.03) 50%,
+    transparent 100%
+  );
+  transition: left 0.6s ease;
+}
+
+.project-tile:hover .tile-shine {
+  left: 100%;
+}
+
+/* Tile Menu */
+.tile-menu-container {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.project-tile:hover .tile-menu-container {
+  opacity: 1;
+}
+
+.tile-menu-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid #333;
+  color: #999;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tile-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+}
+
+.tile-menu-dropdown {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 120px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.tile-menu-item {
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: #ccc;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.tile-menu-item:hover {
+  background: #2a2a2a;
+}
+
+.tile-menu-item.delete {
+  color: #ef4444;
+}
+
+.tile-menu-item.delete:hover {
+  background: rgba(239, 68, 68, 0.15);
 }
 
 @media (max-width: 1200px) {
