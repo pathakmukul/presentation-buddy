@@ -1190,6 +1190,12 @@
   background: #2a2a2a;
 }
 
+.present-dropdown-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Presentation Mode */
 .presentation-mode {
   position: fixed;
@@ -1322,6 +1328,7 @@ video.presented-media::-webkit-media-controls-panel {
 }
 
 .control-btn {
+  position: relative;
   width: 44px;
   height: 44px;
   background: #2a2a2a;
@@ -1368,6 +1375,28 @@ video.presented-media::-webkit-media-controls-panel {
 
 .control-btn.muted:hover {
   background: #4b5563;
+  opacity: 1;
+}
+
+/* Control button tooltip */
+.control-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  background: #1a1a1a;
+  color: #888;
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.control-btn:hover .control-tooltip {
   opacity: 1;
 }
 

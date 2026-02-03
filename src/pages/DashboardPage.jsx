@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { User, Presentation, MoreVertical, Trash2 } from 'lucide-react'
 import './DashboardPage.css'
 
-export default function DashboardPage({ projects, user, onCreateProject, onSelectProject, onDeleteProject, onLogout }) {
+export default function DashboardPage({ projects, user, onCreateProject, onSelectProject, onDeleteProject, onLogout, onOpenDocs }) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [openProjectMenu, setOpenProjectMenu] = useState(null)
   const menuRef = useRef(null)
@@ -52,23 +52,29 @@ export default function DashboardPage({ projects, user, onCreateProject, onSelec
       <header className="dashboard-header">
         <h1>My Projects</h1>
 
-        <div className="user-menu-container" ref={menuRef}>
-          <button
-            onClick={() => setShowUserMenu(!showUserMenu)}
-            className="user-icon-btn"
-            title="User menu"
-          >
-            <User size={20} color="#e0e0e0" />
+        <div className="header-right">
+          <button className="docs-btn" onClick={onOpenDocs}>
+            Documentation
           </button>
 
-          {showUserMenu && (
-            <div className="user-menu-dropdown">
-              <div className="user-email">{user?.email}</div>
-              <button onClick={onLogout} className="logout-btn-dropdown">
-                Logout
-              </button>
-            </div>
-          )}
+          <div className="user-menu-container" ref={menuRef}>
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="user-icon-btn"
+              title="User menu"
+            >
+              <User size={20} color="#e0e0e0" />
+            </button>
+
+            {showUserMenu && (
+              <div className="user-menu-dropdown">
+                <div className="user-email">{user?.email}</div>
+                <button onClick={onLogout} className="logout-btn-dropdown">
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

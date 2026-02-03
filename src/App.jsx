@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import ProjectPage from './pages/ProjectPage'
+import DocumentationPage from './pages/DocumentationPage'
 
 function AppContent() {
   const { user, loading: authLoading, signOut } = useAuth()
@@ -11,6 +12,7 @@ function AppContent() {
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [showDocs, setShowDocs] = useState(false)
 
   // Fetch projects from Supabase with localStorage cache
   useEffect(() => {
@@ -292,6 +294,10 @@ function AppContent() {
     return <LoginPage />
   }
 
+  if (showDocs) {
+    return <DocumentationPage onBack={() => setShowDocs(false)} />
+  }
+
   if (selectedProject) {
     return (
       <ProjectPage
@@ -311,6 +317,7 @@ function AppContent() {
       onSelectProject={handleSelectProject}
       onDeleteProject={handleDeleteProject}
       onLogout={handleLogout}
+      onOpenDocs={() => setShowDocs(true)}
     />
   )
 }

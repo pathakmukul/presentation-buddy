@@ -895,14 +895,13 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
                 <span>Present</span>
               </div>
               <div
-                className="present-dropdown-item"
-                onClick={() => startPresentation(true)}
+                className="present-dropdown-item disabled"
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Play size={16} />
                   <span style={{ fontSize: '12px', color: '#ef4444' }}>●</span>
                 </div>
-                <span>Present + Record</span>
+                <span>Present + Record <span style={{ opacity: 0.5 }}>(WIP)</span></span>
               </div>
             </div>
           )}
@@ -1330,33 +1329,34 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
             {/* Play/Pause Agent - mutes both mic and agent audio */}
             <button
               className={`control-btn ${presenterAgent.isPaused ? 'paused' : ''}`}
-              title={presenterAgent.isPaused ? 'Resume Agent' : 'Pause Agent'}
               onClick={() => presenterAgent.togglePause()}
             >
               {presenterAgent.isPaused ? <Play size={20} /> : <Pause size={20} />}
+              <span className="control-tooltip">{presenterAgent.isPaused ? 'Resume' : 'Pause Conversation'}</span>
             </button>
 
             {/* Mute/Unmute Agent Audio (Speaker) */}
             <button
               className={`control-btn ${presenterAgent.isAgentMuted ? 'muted' : ''}`}
-              title={presenterAgent.isAgentMuted ? 'Unmute Agent' : 'Mute Agent'}
               onClick={() => presenterAgent.toggleAgentAudio()}
             >
               {presenterAgent.isAgentMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              <span className="control-tooltip">{presenterAgent.isAgentMuted ? 'Unmute Agent' : 'Mute Agent'}</span>
             </button>
 
             {/* Mute/Unmute User Mic */}
             <button
               className={`control-btn ${!presenterAgent.isMicEnabled ? 'muted' : ''}`}
-              title={presenterAgent.isMicEnabled ? 'Mute Mic' : 'Unmute Mic'}
               onClick={() => presenterAgent.toggleMic()}
             >
               {presenterAgent.isMicEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+              <span className="control-tooltip">{presenterAgent.isMicEnabled ? 'Mute Mic' : 'Unmute Mic'}</span>
             </button>
 
             {/* Exit Presentation */}
-            <button className="control-btn exit-btn" onClick={exitPresentMode} title="Exit">
+            <button className="control-btn exit-btn" onClick={exitPresentMode}>
               ✕
+              <span className="control-tooltip">Exit</span>
             </button>
           </div>
         </div>

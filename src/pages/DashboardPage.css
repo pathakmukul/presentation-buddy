@@ -19,6 +19,32 @@
   color: #e0e0e0;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.docs-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  color: #888;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.docs-btn:hover {
+  background: #2a2a2a;
+  border-color: #4a4a4a;
+  color: #e0e0e0;
+}
+
 .user-menu-container {
   position: relative;
 }
