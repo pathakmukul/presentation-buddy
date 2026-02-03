@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, Info, FileText, Play, Pause, Volume2, VolumeX, Mic, MicOff, Phone, PhoneOff, File } from 'lucide-react'
+import { PresentationPattern, PatternSelector, isLightPattern } from '../components/PresentationPatterns'
 import { updateMessageOpacity } from '../utils/fadeMessages'
 import { supabase } from '../lib/supabase'
 import { useVoiceAgent } from '../hooks/useVoiceAgent'
@@ -30,6 +31,10 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   const [isCachingAssets, setIsCachingAssets] = useState(false)
   const [cachedAssetUrls, setCachedAssetUrls] = useState({}) // Maps asset.id -> cached blob URL
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0) // Background section layer
+  const [selectedPattern, setSelectedPattern] = useState(() => {
+    // Load from localStorage, default to 'none'
+    return localStorage.getItem('presentationPattern') || 'none'
+  })
   const messagesContainerRef = useRef(null)
   const videoRef = useRef(null)
   const projectIdRef = useRef(null)
@@ -39,6 +44,11 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   // Voice agents
   const voiceAgent = useVoiceAgent() // Planning agent for create mode
   const presenterAgent = useVoiceAgent() // Presenter agent for presentation mode
+
+  // Save pattern selection to localStorage
+  useEffect(() => {
+    localStorage.setItem('presentationPattern', selectedPattern)
+  }, [selectedPattern])
 
   useEffect(() => {
     const handleScroll = () => {
@@ -902,6 +912,7 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
       <div className="split-view">
         <div className="left-panel">
           <div className={`agent-card ${isAnimating ? 'animating' : ''}`}>
+            <div className="dot-layer-b" />
             <div className="panel-header">
               <h2>Agent</h2>
               {voiceAgent.isConnected && (
@@ -1070,16 +1081,45 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
 
         <div className="right-panel">
           <div className={`preview-card ${isAnimating ? 'animating' : ''}`}>
+            <div className="dot-layer-b" />
             <div className="panel-header">
               <h2>Preview</h2>
             </div>
 
             <div className="preview-container">
-              <div className="preview-screen">
-                <div className="preview-placeholder">
-                  <h3>1080p Preview Area</h3>
-                  <p>Your presentation will appear here</p>
-                </div>
+              <div className={`preview-screen ${isLightPattern(selectedPattern) ? 'light-theme' : ''}`}>
+                {/* Preview label */}
+                <span className="preview-label">PREVIEW</span>
+
+                {/* Pattern Selector - top right corner */}
+                <PatternSelector
+                  selectedPattern={selectedPattern}
+                  onSelectPattern={setSelectedPattern}
+                />
+
+                {/* Selected pattern background */}
+                <PresentationPattern patternId={selectedPattern} />
+
+                {/* Show first section from plan, or placeholder */}
+                {presentationPlan?.structure?.sections?.[0] ? (
+                  <div className="preview-section">
+                    <h3 className="preview-section-title">
+                      {presentationPlan.structure.sections[0].section}
+                    </h3>
+                    {presentationPlan.structure.sections[0].talking_points && (
+                      <ul className="preview-section-points">
+                        {presentationPlan.structure.sections[0].talking_points.map((point, idx) => (
+                          <li key={idx}>{point}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : (
+                  <div className="preview-placeholder">
+                    <h3>1080p Preview Area</h3>
+                    <p>Your presentation will appear here</p>
+                  </div>
+                )}
               </div>
 
               {!loadingAssets && (contentAssets.length > 0 || presentationPlan) && (
@@ -1215,7 +1255,10 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
       {/* Presentation Mode */}
       {isPresentMode && (
         <div className="presentation-mode">
-          <div className="presentation-canvas">
+          {/* Background Pattern */}
+          <PresentationPattern patternId={selectedPattern} />
+
+          <div className={`presentation-canvas ${isLightPattern(selectedPattern) ? 'light-theme' : ''}`}>
             {/* Single content area - show agent content if available, otherwise show section fallback */}
             {displayedContent ? (
               // Agent pushed visual content

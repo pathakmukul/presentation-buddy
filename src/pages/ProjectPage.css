@@ -206,6 +206,7 @@
   opacity: 1;
 }
 
+/* Agent card dots - Set A (odd positions) */
 .agent-card::after {
   content: '';
   position: absolute;
@@ -213,23 +214,54 @@
   left: -20%;
   right: -20%;
   bottom: -20%;
-  background-image: radial-gradient(circle, #444 1px, transparent 1px);
-  background-size: 20px 20px;
+  background-image: radial-gradient(circle, #555 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: 0 0;
   transform: rotate(-10deg);
   z-index: 0;
-  animation: dotPulse 4s ease-in-out infinite;
+  animation: dotPulseA 4s ease-in-out infinite;
 }
 
-.agent-card.animating::after {
+/* Agent card dots - Set B (even positions, offset) */
+.agent-card .dot-layer-b {
+  position: absolute;
+  top: -20%;
+  left: -20%;
+  right: -20%;
+  bottom: -20%;
+  background-image: radial-gradient(circle, #555 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: 20px 20px;
+  transform: rotate(-10deg);
+  z-index: 0;
+  pointer-events: none;
+  animation: dotPulseB 4s ease-in-out infinite;
+}
+
+.agent-card.animating::after,
+.agent-card.animating .dot-layer-b {
   animation: dotRotateZoom 3s linear infinite;
 }
 
-@keyframes dotPulse {
+@keyframes dotPulseA {
   0%, 100% {
-    opacity: 0.6;
+    opacity: 0.5;
+    filter: brightness(0.9);
   }
   50% {
-    opacity: 1;
+    opacity: 0.9;
+    filter: brightness(1.2);
+  }
+}
+
+@keyframes dotPulseB {
+  0%, 100% {
+    opacity: 0.9;
+    filter: brightness(1.2);
+  }
+  50% {
+    opacity: 0.5;
+    filter: brightness(0.9);
   }
 }
 
@@ -278,6 +310,7 @@
   position: relative;
 }
 
+/* Preview card dots - Set A (odd positions) */
 .preview-card::before {
   content: '';
   position: absolute;
@@ -285,22 +318,52 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: radial-gradient(circle, #333 1px, transparent 1px);
-  background-size: 20px 20px;
+  background-image: radial-gradient(circle, #444 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: 0 0;
   z-index: 0;
-  animation: previewDotPulse 5s ease-in-out infinite;
+  animation: previewDotPulseA 4s ease-in-out infinite;
 }
 
-.preview-card.animating::before {
+/* Preview card dots - Set B (even positions, offset) */
+.preview-card .dot-layer-b {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: radial-gradient(circle, #444 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: 20px 20px;
+  z-index: 0;
+  pointer-events: none;
+  animation: previewDotPulseB 4s ease-in-out infinite;
+}
+
+.preview-card.animating::before,
+.preview-card.animating .dot-layer-b {
   animation: previewDotRotateZoom 3s linear infinite;
 }
 
-@keyframes previewDotPulse {
+@keyframes previewDotPulseA {
   0%, 100% {
     opacity: 0.5;
+    filter: brightness(0.9);
   }
   50% {
     opacity: 0.9;
+    filter: brightness(1.2);
+  }
+}
+
+@keyframes previewDotPulseB {
+  0%, 100% {
+    opacity: 0.9;
+    filter: brightness(1.2);
+  }
+  50% {
+    opacity: 0.5;
+    filter: brightness(0.9);
   }
 }
 
@@ -565,7 +628,7 @@
 .preview-screen {
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: #1a1a1a;
+  background: #000;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   display: flex;
@@ -573,10 +636,71 @@
   align-items: center;
   border: 1px solid #2a2a2a;
   z-index: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.preview-label {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.3);
+  z-index: 2;
 }
 
 .preview-placeholder {
   text-align: center;
+  z-index: 1;
+}
+
+/* Preview Section - shows first section from plan */
+.preview-section {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  text-align: center;
+  width: 100%;
+  height: 100%;
+}
+
+.preview-section-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #e0e0e0;
+  margin: 0 0 16px 0;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.preview-section-points {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.8;
+  text-align: left;
+  max-width: 80%;
+}
+
+.preview-section-points li {
+  margin-bottom: 6px;
+  padding-left: 16px;
+  position: relative;
+  color: #b0b0b0;
+}
+
+.preview-section-points li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #007aff;
+  font-size: 14px;
 }
 
 .preview-placeholder h3 {
@@ -1081,11 +1205,13 @@
 }
 
 .presentation-canvas {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1;
 }
 
 .presentation-placeholder {
