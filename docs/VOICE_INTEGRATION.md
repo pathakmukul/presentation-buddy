@@ -31,8 +31,8 @@ Agent can send actions back to control UI (display content, transition sections,
 
 1. Get VocalBridge API key from https://vocalbridgeai.com
 2. Update `VOCALBRIDGE_API_KEY` in `.env`
-3. Deploy backend: `vercel`
-4. Set `VOCALBRIDGE_API_KEY` in Vercel dashboard
+3. Deploy React app (frontend handles voice connection)
+4. Set `VOCALBRIDGE_API_KEY` in your deployment environment
 5. Use `useVoiceAgent` hook in components
 
 ## Key Methods
@@ -56,4 +56,10 @@ Configure in VocalBridge dashboard:
 - `show_timer` - Show countdown timer
 
 ### MCP Server
-Agent uses MCP tools from buddy-api (generate_graph, search_web) - separate deployment.
+Agent uses MCP tools from buddy-api deployed on Railway:
+- `generate_graph` - Create bar/line/pie charts
+- `generate_manim_animation` - Create animated videos
+- `check_generation_status` - Query job status
+- `save_presentation_plan` - Save plan to database
+
+MCP Server URL: `https://buddy-api-prod.up.railway.app/api/mcp`

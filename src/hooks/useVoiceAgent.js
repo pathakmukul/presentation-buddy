@@ -11,6 +11,8 @@ export function useVoiceAgent() {
     isConnected: false,
     isConnecting: false,
     isMicEnabled: false,
+    isAgentMuted: false, // Mute agent's audio output (speaker)
+    isPaused: false, // Pause agent (mute both mic and agent audio)
     error: null,
     agentStatus: 'disconnected' // 'disconnected', 'listening', 'speaking'
   })
@@ -24,6 +26,7 @@ export function useVoiceAgent() {
   const audioContextRef = useRef(null) // Web Audio API context for audio detection
   const audioAnalyserRef = useRef(null) // Audio analyser
   const audioCheckIntervalRef = useRef(null) // Interval for checking audio level
+  const agentAudioElementRef = useRef(null) // Reference to agent's audio element for muting
 
   // Handle agent audio track subscription
   useEffect(() => {
@@ -35,6 +38,7 @@ export function useVoiceAgent() {
         const audioEl = track.attach()
         audioEl.autoplay = true
         document.body.appendChild(audioEl)
+        agentAudioElementRef.current = audioEl // Store reference for muting
 
 
         // Set up audio analysis for speech detection
@@ -124,6 +128,7 @@ export function useVoiceAgent() {
 
       if (track.kind === Track.Kind.Audio && isAgent) {
         track.detach().forEach(el => el.remove())
+        agentAudioElementRef.current = null
 
         // Clean up audio detection
         if (audioCheckIntervalRef.current) {
@@ -410,6 +415,42 @@ export function useVoiceAgent() {
     setState(s => ({ ...s, isMicEnabled: enabled }))
   }, [room, state.isMicEnabled])
 
+  /**
+   * Toggle agent audio output (mute/unmute the speaker)
+   * Only affects agent's voice - doesn't affect anything else
+   */
+  const toggleAgentAudio = useCallback(() => {
+    if (agentAudioElementRef.current) {
+      const muted = !state.isAgentMuted
+      agentAudioElementRef.current.muted = muted
+      setState(s => ({ ...s, isAgentMuted: muted }))
+    }
+  }, [state.isAgentMuted])
+
+  /**
+   * Toggle pause state (mutes both mic and agent audio)
+   * When paused, agent can't hear user and user can't hear agent
+   */
+  const togglePause = useCallback(async () => {
+    const shouldPause = !state.isPaused
+
+    if (shouldPause) {
+      // Pause: mute mic and agent audio
+      await room.localParticipant.setMicrophoneEnabled(false)
+      if (agentAudioElementRef.current) {
+        agentAudioElementRef.current.muted = true
+      }
+      setState(s => ({ ...s, isPaused: true, isMicEnabled: false, isAgentMuted: true }))
+    } else {
+      // Resume: unmute mic and agent audio
+      await room.localParticipant.setMicrophoneEnabled(true)
+      if (agentAudioElementRef.current) {
+        agentAudioElementRef.current.muted = false
+      }
+      setState(s => ({ ...s, isPaused: false, isMicEnabled: true, isAgentMuted: false }))
+    }
+  }, [room, state.isPaused])
+
   return {
     // State
     ...state,
@@ -419,7 +460,9 @@ export function useVoiceAgent() {
     // Methods
     connect,
     disconnect,
-    toggleMic,
+    toggleMic, // Mute user's microphone
+    toggleAgentAudio, // Mute agent's audio output (speaker)
+    togglePause, // Pause agent (mutes both mic and agent audio)
     updateContext,
     sendActionToAgent,
     onClientAction,

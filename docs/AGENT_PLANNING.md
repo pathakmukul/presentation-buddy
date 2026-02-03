@@ -98,44 +98,51 @@ Complete presentation plan stored in Supabase:
 Execute content generation tasks requested by Planning Agent.
 
 ### Implementation
-Vercel HTTP MCP server using `mcp-handler` package.
+Railway Docker container with Express server + Python workers. Uses Streamable HTTP transport (MCP 2025-11-25 protocol).
 
 ### Available Tools
 
 **Tool 1: generate_graph**
-- Input: `presentation_id`, `graph_type` (bar/line/pie), `data` (labels, values), optional `title`
-- Process: Creates job, calls Python worker, waits for completion (5-10s)
+- Input: `presentation_id`, `graph_type` (bar/line/pie), `data` (labels, values), `title`, `description`
+- Process: Creates job, spawns Python CLI worker, waits for completion (2-5s)
 - Output: Graph URL, job_id, asset_id
 - Behavior: **Synchronous** - blocks until complete
 
-**Tool 2: check_generation_status**
+**Tool 2: generate_manim_animation**
+- Input: `presentation_id`, `description`, `duration_seconds`
+- Process: Uses Claude API to generate Manim code, renders with Manim (30-50s)
+- Output: Video URL, job_id, asset_id
+- Behavior: **Synchronous** - blocks until complete
+
+**Tool 3: check_generation_status**
 - Input: `presentation_id`
 - Process: Queries Supabase content_jobs table
 - Output: List of all jobs with statuses and asset URLs
 - Behavior: Fast query (<200ms)
 
-**Tool 3: search_web**
-- Input: `query`
-- Process: DuckDuckGo API search
-- Output: Search results JSON
-- Behavior: Synchronous (1-2s)
+**Tool 4: save_presentation_plan**
+- Input: `presentation_id`, `plan`, `handoff_cues`
+- Process: Saves/updates presentation_plans table
+- Output: Confirmation with plan ID
+- Behavior: Fast (<500ms)
 
 ### Execution Flow (Synchronous)
 1. Planning Agent identifies need: "User wants sales graph"
 2. Agent calls `generate_graph` MCP tool
 3. MCP server creates job in Supabase (status: "queued")
-4. MCP calls Python worker at `/api/content-worker`
-5. Python worker generates matplotlib graph (~3-5s)
+4. Express spawns Python CLI worker via stdin/stdout
+5. Python worker generates matplotlib graph (~2-3s)
 6. Worker uploads PNG to Supabase Storage bucket
-7. Worker updates job status to "completed" with asset_id
-8. MCP waits for worker response
-9. MCP returns graph URL + asset_id to agent (~5-10s total)
+7. Worker outputs JSON result to stdout
+8. MCP parses result, updates job status
+9. MCP returns graph URL + asset_id to agent (~2-5s total)
 10. Agent continues conversation with completed asset
 
-### Why Synchronous?
-- **Tried async fire-and-forget**: Worker never executed (Vercel kills pending requests)
-- **Chose reliability over speed**: 5-10s wait acceptable for guaranteed completion
-- **Agent can still multitask**: Use `check_generation_status` to verify old jobs
+### Why Railway (not Vercel)?
+- **Manim requires system libraries**: cairo, pango, ffmpeg - not available in serverless
+- **Docker support**: Full control over dependencies
+- **Long-running processes**: No 10s timeout limit
+- **Synchronous execution**: Reliable completion guarantees
 
 ---
 
@@ -321,16 +328,17 @@ Stored in Supabase for user review:
 ## MCP Server Architecture
 
 ### Implementation Platform
-**Vercel Serverless Functions** with HTTP transport
+**Railway** with Docker container (Express + Node.js + Python)
 
 ### Technology Stack
-- **mcp-handler** v1.0.7 - Official Vercel MCP package
 - **@modelcontextprotocol/sdk** v1.25.2 - MCP protocol implementation
+- **Express** - HTTP server
 - **Zod** - Input validation
 - **@supabase/supabase-js** - Database/storage client
+- **Python 3.11** - matplotlib + Manim workers
 
 ### Single Endpoint, Multiple Tools
-`https://buddy-api-rouge.vercel.app/api/mcp` exposes all 3 tools
+`https://buddy-api-prod.up.railway.app/api/mcp` exposes all 4 tools
 
 ### Tool Discovery
 VocalBridge automatically calls `tools/list` method to discover available tools
@@ -340,17 +348,24 @@ All tools use **synchronous execution** - MCP waits for completion before return
 
 **generate_graph:**
 - Creates job in DB
-- Calls Python worker with `await fetch()`
-- Waits 5-10 seconds for graph generation
+- Spawns Python CLI worker
+- Waits 2-5 seconds for graph generation
+- Returns completed asset URL
+
+**generate_manim_animation:**
+- Creates job in DB
+- Calls Claude API for Manim code generation
+- Spawns Python Manim renderer
+- Waits 30-50 seconds for video
 - Returns completed asset URL
 
 **check_generation_status:**
 - Quick DB query
 - Returns immediately (<200ms)
 
-**search_web:**
-- DuckDuckGo API call
-- Returns in 1-2 seconds
+**save_presentation_plan:**
+- Upserts to presentation_plans table
+- Returns immediately (<500ms)
 
 ---
 
@@ -408,15 +423,19 @@ They complement each other. MCP Tools create content in Create Mode. Client Acti
 ## Performance Considerations
 
 ### Content Generation Speed
-- **Graph generation**: 5-10 seconds (synchronous - agent waits)
+- **Graph generation**: 2-5 seconds (synchronous - agent waits)
   - Job creation: <100ms
-  - Python matplotlib: 3-5 seconds
-  - Supabase upload: 1-2 seconds
-  - Total blocking time: ~5-10s per graph
-- **Web search**: 1-2 seconds (synchronous)
+  - Python matplotlib: 1-3 seconds
+  - Supabase upload: 0.5-1 second
+  - Total blocking time: ~2-5s per graph
+- **Manim animation**: 30-50 seconds (synchronous)
+  - Claude API code generation: 5-10 seconds
+  - Manim rendering: 20-30 seconds
+  - Supabase upload: 2-5 seconds
 - **Status check**: <200ms (quick DB query)
-- **Sequential execution**: Multiple graphs = N × 10 seconds
-- **Trade-off**: Reliability over speed (async failed in Vercel)
+- **Plan save**: <500ms
+- **Sequential execution**: Multiple assets generated one at a time
+- **Platform**: Railway Docker (supports long-running processes)
 
 ### Presentation Mode Performance
 - All assets preloaded into IndexedDB before starting
@@ -583,6 +602,6 @@ They complement each other. MCP Tools create content in Create Mode. Client Acti
 
 ---
 
-*Document Version: 1.2*
-*Last Updated: 2026-01-29*
-*Updated: Synchronous execution model - MCP awaits worker completion (async failed in Vercel)*
+*Document Version: 2.0*
+*Last Updated: 2026-02-02*
+*Updated: Railway deployment with Streamable HTTP transport, Manim animation support*

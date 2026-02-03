@@ -2,31 +2,33 @@
 
 ## Overview
 
-HTTP-based MCP server deployed on Vercel using `mcp-handler` package. Provides synchronous content generation tools for VocalBridge agents.
+HTTP-based MCP server deployed on **Railway** using Docker. Provides synchronous content generation tools for VocalBridge agents. Moved from Vercel because Manim requires system libraries (cairo, pango, ffmpeg) that serverless functions cannot provide.
 
 ## Architecture
 
 ```
 VocalBridge Planning Agent
-    ↓ (HTTP MCP protocol)
-MCP Server (Vercel /api/mcp - TypeScript)
-    ↓ (await fetch - synchronous)
-Python Worker (Vercel /api/content-worker)
-    ↓ (matplotlib + Supabase SDK)
-Supabase Storage (PNG images)
+    ↓ (Streamable HTTP - MCP 2025-11-25)
+MCP Server (Railway /api/mcp - Express + Node.js)
+    ↓ (spawn Python CLI - stdin/stdout)
+Python Workers
+    ├── Content Worker (matplotlib graphs)
+    └── Manim Generator (animated videos)
+    ↓
+Supabase Storage (PNG images, MP4 videos)
 ```
 
 ## Key Technologies
 
-- **mcp-handler** v1.0.7 - Vercel's official MCP HTTP handler
 - **@modelcontextprotocol/sdk** v1.25.2 - MCP protocol
+- **Express** - HTTP server
 - **Zod** v4.3.6 - Schema validation
-- **Python 3.9** - matplotlib graph generation
-- **supabase-py** v2.10.0 - Storage uploads
+- **Python 3.11** - matplotlib + Manim generation
+- **Docker** - Multi-stage build for system dependencies
 
 ## Tools Available
 
-### 1. generate_graph ⏱️ 5-10 seconds (synchronous)
+### 1. generate_graph ⏱️ 2-5 seconds (synchronous)
 Generates bar, line, or pie chart using Python matplotlib.
 
 **Input:**
@@ -34,6 +36,7 @@ Generates bar, line, or pie chart using Python matplotlib.
 - `graph_type` (enum) - 'bar', 'line', or 'pie'
 - `data` (object) - `{ labels: string[], values: number[] }`
 - `title` (string, optional) - Graph title
+- `description` (string) - What the graph shows (max 8 words)
 
 **Output:**
 ```
@@ -44,142 +47,108 @@ Job ID: {uuid}
 Asset ID: {uuid}
 ```
 
-**Behavior:** **Blocks 5-10 seconds** until Python worker completes
+### 2. generate_manim_animation ⏱️ 30-50 seconds (synchronous)
+Generates animated videos using Manim (3Blue1Brown library).
 
-### 2. check_generation_status ⚡ <200ms
+**Input:**
+- `presentation_id` (string) - UUID of presentation
+- `description` (string) - What to animate
+- `duration_seconds` (number) - Target duration
+
+**Output:**
+```
+Animation generated successfully!
+
+URL: https://gcebekzpnpeunkofchtb.supabase.co/storage/v1/object/public/content-assets/animations/{hash}.mp4
+Job ID: {uuid}
+Asset ID: {uuid}
+```
+
+### 3. check_generation_status ⚡ <200ms
 Query all jobs for a presentation.
 
 **Input:**
 - `presentation_id` (string) - UUID
 
-**Output:** JSON array of job objects:
-```json
-[
-  {
-    "id": "uuid",
-    "status": "completed",
-    "asset_id": "uuid",
-    "created_at": "timestamp",
-    "completed_at": "timestamp"
-  }
-]
-```
+**Output:** JSON array of job objects
 
-### 3. search_web ⚡ 1-2 seconds
-DuckDuckGo instant answer API.
+### 4. save_presentation_plan ⚡ <500ms
+Save complete presentation structure to database.
 
 **Input:**
-- `query` (string)
-
-**Output:** JSON with search results
-
-## ✅ What Worked
-
-### Synchronous Execution Pattern
-```typescript
-// MCP tool awaits Python worker completion
-const response = await fetch(workerUrl, { method: 'POST', body: JSON.stringify({...}) });
-const result = await response.json();
-return { content: [{ type: 'text', text: `Graph URL: ${result.url}` }] };
-```
-
-### HTTP MCP via mcp-handler
-```typescript
-import { createMcpHandler } from 'mcp-handler';
-
-const handler = createMcpHandler(
-  (server) => {
-    server.tool('generate_graph', 'description', schema, async (args) => {...});
-  },
-  {},
-  { basePath: '/api' }
-);
-
-export { handler as GET, handler as POST, handler as DELETE };
-```
-
-### Exact Package Versions (Critical!)
-```json
-{
-  "@modelcontextprotocol/sdk": "1.25.2",  // NOT ^1.25.3
-  "mcp-handler": "^1.0.7",
-  "supabase": "2.10.0"  // Python - NOT 2.12.1
-}
-```
-
-## ❌ What Failed
-
-### Fire-and-Forget Async
-```typescript
-// ❌ DOESN'T WORK - Vercel kills pending requests
-fetch(workerUrl, {...});  // no await
-return { job_id };  // returns immediately
-// Worker NEVER executes - function terminated
-```
-
-### stdio Transport
-```typescript
-// ❌ DOESN'T WORK - Only works locally
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-// Can't expose over HTTP for VocalBridge
-```
+- `presentation_id` (string) - UUID
+- `plan` (object) - Presentation structure with sections
+- `handoff_cues` (object) - Triggers for agent handoffs
 
 ## Deployment Steps
 
-### 1. Install Dependencies
-```bash
-npm install @modelcontextprotocol/sdk@1.25.2 mcp-handler@^1.0.7 zod@^4.3.6
-```
+### 1. Prerequisites
+- Railway account
+- GitHub repo connected
+- Supabase project
 
-### 2. Set Vercel Environment Variables
-Project Settings → Environment Variables:
+### 2. Set Railway Environment Variables
+Project Settings → Variables:
 - `SUPABASE_URL=https://your-project.supabase.co`
 - `SUPABASE_SERVICE_KEY=eyJhbGc...` (service_role key)
+- `ANTHROPIC_API_KEY=sk-ant-api03-...` (for Manim code generation)
+
+Railway auto-sets:
+- `PORT`
+- `RAILWAY_PUBLIC_DOMAIN`
 
 ### 3. Deploy
+Railway auto-deploys from GitHub on push to `main`:
 ```bash
-vercel --prod
+git push origin main
 ```
 
-Production URL: `https://buddy-api-rouge.vercel.app`
-
-### 4. Configure Claude Code (Local Testing)
+Or manual via CLI:
 ```bash
-claude mcp add-json buddy-api '{"type":"http","url":"https://buddy-api-rouge.vercel.app/api/mcp"}'
+railway up
+```
+
+Production URL: `https://buddy-api-prod.up.railway.app`
+
+### 4. Configure Claude Code
+```bash
+claude mcp add-json buddy-api '{"type":"http","url":"https://buddy-api-prod.up.railway.app/api/mcp"}' --scope user
 ```
 
 ### 5. Configure VocalBridge (Production)
 Agent Settings:
-- **MCP URL**: `https://buddy-api-rouge.vercel.app/api/mcp`
-- **Transport**: HTTP
+- **MCP URL**: `https://buddy-api-prod.up.railway.app/api/mcp`
+- **Protocol**: Streamable HTTP (2025-11-25)
 - Tools auto-discovered via `tools/list`
 
 ## Local Development
 
-### 1. Install Vercel CLI
+### 1. Install Dependencies
 
 ```bash
-npm i -g vercel
+npm install
+pip install -r api/content-worker/requirements.txt
+pip install -r api/manim-generator/requirements.txt
 ```
 
 ### 2. Create .env file
 
 ```bash
 cp .env.example .env
-# Edit .env with your Supabase credentials
+# Edit .env with your Supabase and Anthropic credentials
 ```
 
 ### 3. Run locally
 
 ```bash
-vercel dev
+node server.js
 ```
 
 MCP server will be available at `http://localhost:3000/api/mcp`
 
 ## Testing MCP Endpoints
 
-### Test tools/list
+### Initialize Session
 
 ```bash
 curl -X POST http://localhost:3000/api/mcp \
@@ -187,6 +156,24 @@ curl -X POST http://localhost:3000/api/mcp \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {"name": "test", "version": "1.0.0"}
+    }
+  }'
+```
+
+### Test tools/list (with session ID)
+
+```bash
+curl -X POST http://localhost:3000/api/mcp \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: <session-id>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
     "method": "tools/list"
   }'
 ```
@@ -196,9 +183,10 @@ curl -X POST http://localhost:3000/api/mcp \
 ```bash
 curl -X POST http://localhost:3000/api/mcp \
   -H "Content-Type: application/json" \
+  -H "mcp-session-id: <session-id>" \
   -d '{
     "jsonrpc": "2.0",
-    "id": 2,
+    "id": 3,
     "method": "tools/call",
     "params": {
       "name": "generate_graph",
@@ -209,7 +197,8 @@ curl -X POST http://localhost:3000/api/mcp \
           "labels": ["A", "B", "C"],
           "values": [10, 20, 30]
         },
-        "title": "Test Graph"
+        "title": "Test Graph",
+        "description": "Sample data comparison chart"
       }
     }
   }'
@@ -218,82 +207,71 @@ curl -X POST http://localhost:3000/api/mcp \
 ## File Structure
 
 ```
-/api
-  /mcp
-    index.ts         - Main MCP server endpoint
-  /content-worker
-    index.py         - Python content generation worker
-    requirements.txt - Python dependencies
-vercel.json         - Vercel configuration
-package.json        - Node dependencies
+buddy-api/
+├── server.js             - Express server (main entry)
+├── Dockerfile            - Multi-stage: Python 3.11 + Node 20 + Manim deps
+├── railway.json          - Railway configuration
+├── package.json          - Node dependencies
+└── api/
+    ├── mcp/
+    │   └── server.js     - MCP server with Streamable HTTP transport
+    ├── content-worker/
+    │   ├── worker.py     - Python CLI graph generator (stdin/stdout)
+    │   └── requirements.txt
+    └── manim-generator/
+        ├── worker.py     - Python CLI Manim generator (stdin/stdout)
+        └── requirements.txt
 ```
 
 ## Troubleshooting
 
 ### "No such tool available: mcp__buddy_api__*"
 **Cause:** MCP server not loaded by Claude Code
-**Fix:** Restart Claude Code after adding MCP config, verify tool name prefix matches server name
+**Fix:** Restart Claude Code after adding MCP config, use `/mcp` to reconnect
 
-### Jobs stuck at "generating" forever
-**Cause:** Fire-and-forget async pattern - Vercel kills pending operations
-**Fix:** Use synchronous `await fetch()` pattern (see "What Worked" section)
-
-### TypeError: Client.__init__() got unexpected keyword 'proxy'
-**Cause:** supabase-py v2.12.1 incompatible
-**Fix:** Downgrade to `supabase==2.10.0` in requirements.txt
-
-### Bucket not found / 404 on image URLs
-**Cause:** Supabase bucket is private
+### Graph generation fails
+**Cause:** Supabase bucket not configured
 **Fix:**
 ```sql
 UPDATE storage.buckets SET public = true WHERE name = 'content-assets';
 ```
 
-### MCP SDK version mismatch
-**Cause:** `mcp-handler@1.0.7` requires exactly SDK v1.25.2
-**Fix:** Use `"@modelcontextprotocol/sdk": "1.25.2"` (no caret)
+### Manim generation fails
+**Cause:** Missing system dependencies or API key
+**Fix:** Check Railway logs, verify ANTHROPIC_API_KEY is set
 
-### Foreign key constraint violation
-**Cause:** Test presentation_id doesn't exist
-**Fix:** Create valid presentation first:
-```sql
-INSERT INTO presentations (id, goal, support_level, duration_seconds, status)
-VALUES (gen_random_uuid(), 'ppt', 'cohost', 300, 'draft') RETURNING id;
-```
-
-### matplotlib cache directory error
-**Cause:** Vercel can't write to default matplotlib cache
-**Fix:** Add to Python worker:
-```python
-import os
-os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib'
-```
+### MCP connection timeout
+**Cause:** Railway domain not in allowedHosts
+**Fix:** Update `api/mcp/server.js` allowedHosts array
 
 ## Testing Checklist
 
+- [x] MCP server responds to `initialize`
 - [x] MCP server responds to `tools/list`
 - [x] `generate_graph` creates job in Supabase
 - [x] Python worker generates matplotlib PNG
 - [x] Image uploads to Supabase Storage public bucket
 - [x] MCP returns graph URL after completion
+- [x] `generate_manim_animation` generates video
 - [x] `check_generation_status` queries jobs correctly
-- [x] `search_web` returns DuckDuckGo results
-- [x] Claude Code can call all 3 tools via HTTP
+- [x] `save_presentation_plan` saves to database
+- [x] Claude Code can call all 4 tools via HTTP
 
 ## Production URL
 
-**Live MCP Server:** https://buddy-api-rouge.vercel.app/api/mcp
+**Live MCP Server:** https://buddy-api-prod.up.railway.app/api/mcp
 
 ## Next Steps
 
-1. ✅ Deploy MCP server to Vercel
-2. ✅ Test with Claude Code locally
-3. ⏳ Configure VocalBridge Planning Agent
-4. ⏳ Test end-to-end with voice agent
-5. 🔮 Future: Manim animations, DALL-E images
+1. ✅ Deploy MCP server to Railway
+2. ✅ Implement Streamable HTTP transport
+3. ✅ Add Manim animation generation
+4. ✅ Test with Claude Code
+5. ⏳ Configure VocalBridge Planning Agent
+6. ⏳ Test end-to-end with voice agent
 
 ---
 
-*Document Version: 2.0*
-*Last Updated: 2026-01-29*
-*Status: ✅ Working - Synchronous execution pattern*
+*Document Version: 3.0*
+*Last Updated: 2026-02-02*
+*Status: ✅ Working - Railway deployment with Streamable HTTP*

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Info, FileText, Play, Pause, Volume2, Mic, MicOff, Phone, PhoneOff, File } from 'lucide-react'
+import { ArrowLeft, Info, FileText, Play, Pause, Volume2, VolumeX, Mic, MicOff, Phone, PhoneOff, File } from 'lucide-react'
 import { updateMessageOpacity } from '../utils/fadeMessages'
 import { supabase } from '../lib/supabase'
 import { useVoiceAgent } from '../hooks/useVoiceAgent'
@@ -29,6 +29,7 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   const [newAssetIds, setNewAssetIds] = useState(new Set())
   const [isCachingAssets, setIsCachingAssets] = useState(false)
   const [cachedAssetUrls, setCachedAssetUrls] = useState({}) // Maps asset.id -> cached blob URL
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0) // Background section layer
   const messagesContainerRef = useRef(null)
   const videoRef = useRef(null)
   const projectIdRef = useRef(null)
@@ -393,6 +394,7 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
     setShouldRecord(withRecording)
     setIsPresentMode(true)
     setShowPresentDropdown(false)
+    setCurrentSectionIndex(0) // Reset to first section
     if (document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen()
     }
@@ -542,6 +544,13 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
           })
           break
 
+        case 'set_section':
+          // Change the background section layer
+          const sectionIndex = payload.index ?? 0
+          console.log('📑 Setting background section to index:', sectionIndex)
+          setCurrentSectionIndex(sectionIndex)
+          break
+
         default:
           console.log('⚠️ Unknown action:', action)
       }
@@ -555,19 +564,41 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   }, [isPresentMode, contentAssets, presenterAgent])
 
   // Mouse tracking for present controls
+  const hideControlsTimeoutRef = useRef(null)
+
   useEffect(() => {
     if (!isPresentMode) return
 
     const handleMouseMove = (e) => {
       const isBottomRight =
-        e.clientX > window.innerWidth - 200 &&
-        e.clientY > window.innerHeight - 200
+        e.clientX > window.innerWidth - 250 &&
+        e.clientY > window.innerHeight - 150
 
-      setShowPresentControls(isBottomRight)
+      if (isBottomRight) {
+        // Clear any pending hide timeout
+        if (hideControlsTimeoutRef.current) {
+          clearTimeout(hideControlsTimeoutRef.current)
+          hideControlsTimeoutRef.current = null
+        }
+        setShowPresentControls(true)
+      } else {
+        // Delay hiding by 1 second so user can reach the buttons
+        if (!hideControlsTimeoutRef.current) {
+          hideControlsTimeoutRef.current = setTimeout(() => {
+            setShowPresentControls(false)
+            hideControlsTimeoutRef.current = null
+          }, 1000)
+        }
+      }
     }
 
     window.addEventListener('mousemove', handleMouseMove)
-    return () => window.removeEventListener('mousemove', handleMouseMove)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      if (hideControlsTimeoutRef.current) {
+        clearTimeout(hideControlsTimeoutRef.current)
+      }
+    }
   }, [isPresentMode])
 
   // Close present dropdown
@@ -1185,15 +1216,22 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
       {isPresentMode && (
         <div className="presentation-mode">
           <div className="presentation-canvas">
-            {displayedContent && (
-              <div className="presented-content" style={{ zIndex: displayedContent.zIndex || 1 }}>
+            {/* Single content area - show agent content if available, otherwise show section fallback */}
+            {displayedContent ? (
+              // Agent pushed visual content
+              <div className="presented-content">
                 {displayedContent.type === 'manim_animation' ? (
                   <video
                     src={displayedContent.file_url}
-                    controls
                     autoPlay
+                    muted={false}
+                    playsInline
                     className="presented-media"
-                    onEnded={() => setDisplayedContent(null)}
+                    onEnded={(e) => {
+                      // Keep video on last frame for 1 second before clearing
+                      e.target.pause()
+                      setTimeout(() => setDisplayedContent(null), 1000)
+                    }}
                   />
                 ) : (
                   <img
@@ -1203,8 +1241,8 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
                   />
                 )}
               </div>
-            )}
-            {displayedText && (
+            ) : displayedText ? (
+              // Agent pushed text content
               <div className="presented-text">
                 {displayedText.title && (
                   <h1 className="text-title">{displayedText.title}</h1>
@@ -1220,33 +1258,60 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
                   </ul>
                 )}
               </div>
-            )}
-            {!displayedContent && !displayedText && (
-              <div className="presentation-placeholder">
-                {shouldRecord && (
-                  <div className="recording-indicator">
-                    <span className="rec-dot">●</span>
-                    <span>Recording</span>
-                  </div>
+            ) : presentationPlan?.structure?.sections?.[currentSectionIndex] ? (
+              // Fallback: show current section from plan
+              <div className="section-background">
+                <h1 className="section-bg-title">
+                  {presentationPlan.structure.sections[currentSectionIndex].section}
+                </h1>
+                {presentationPlan.structure.sections[currentSectionIndex].talking_points && (
+                  <ul className="section-bg-points">
+                    {presentationPlan.structure.sections[currentSectionIndex].talking_points.map((point, idx) => (
+                      <li key={idx}>{point}</li>
+                    ))}
+                  </ul>
                 )}
               </div>
+            ) : (
+              // No content at all - show recording indicator if recording
+              shouldRecord && (
+                <div className="recording-indicator-overlay">
+                  <span className="rec-dot">●</span>
+                  <span>Recording</span>
+                </div>
+              )
             )}
           </div>
 
           <div className={`presentation-controls ${showPresentControls ? 'visible' : ''}`}>
-            <button className="control-btn" title="Play">
-              <Play size={20} />
-            </button>
-            <button className="control-btn" title="Pause">
-              <Pause size={20} />
-            </button>
+            {/* Play/Pause Agent - mutes both mic and agent audio */}
             <button
-              className="control-btn"
-              title={presenterAgent.isMicEnabled ? 'Mute' : 'Unmute'}
+              className={`control-btn ${presenterAgent.isPaused ? 'paused' : ''}`}
+              title={presenterAgent.isPaused ? 'Resume Agent' : 'Pause Agent'}
+              onClick={() => presenterAgent.togglePause()}
+            >
+              {presenterAgent.isPaused ? <Play size={20} /> : <Pause size={20} />}
+            </button>
+
+            {/* Mute/Unmute Agent Audio (Speaker) */}
+            <button
+              className={`control-btn ${presenterAgent.isAgentMuted ? 'muted' : ''}`}
+              title={presenterAgent.isAgentMuted ? 'Unmute Agent' : 'Mute Agent'}
+              onClick={() => presenterAgent.toggleAgentAudio()}
+            >
+              {presenterAgent.isAgentMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            </button>
+
+            {/* Mute/Unmute User Mic */}
+            <button
+              className={`control-btn ${!presenterAgent.isMicEnabled ? 'muted' : ''}`}
+              title={presenterAgent.isMicEnabled ? 'Mute Mic' : 'Unmute Mic'}
               onClick={() => presenterAgent.toggleMic()}
             >
-              <Volume2 size={20} />
+              {presenterAgent.isMicEnabled ? <Mic size={20} /> : <MicOff size={20} />}
             </button>
+
+            {/* Exit Presentation */}
             <button className="control-btn exit-btn" onClick={exitPresentMode} title="Exit">
               ✕
             </button>
