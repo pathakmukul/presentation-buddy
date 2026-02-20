@@ -112,7 +112,7 @@ export default function DocumentationPage({ onBack }) {
                 <li>
                   <strong>Videos for YouTube & More</strong><br />
                   Record your presentation sessions and download them for platforms like YouTube,
-                  courses, or social media. <span className="wip-tag">Download WIP</span>
+                  courses, or social media.
                 </li>
               </ul>
               <p>
@@ -380,39 +380,99 @@ export default function DocumentationPage({ onBack }) {
 
             {/* Video Download */}
             <section className="docs-section" id="video-download">
-              <h2>Video Download <span className="wip-tag">WIP</span></h2>
+              <h2>Video Download</h2>
               <p>
-                When you select <strong>Present + Record</strong>, your entire presentation session
-                is recorded including your voice, the agent's voice, and all visual content displayed.
+                When you select <strong>Present + Record</strong> from the Present dropdown, your entire
+                presentation session is recorded including your voice, the agent's voice, and all visual
+                content displayed on screen.
               </p>
               <p>
-                Once your presentation ends, you'll be able to download the recording as a video file
-                ready for upload to YouTube, Vimeo, course platforms, or anywhere you share video content.
+                Your selected theme (Dots, Lines, Light, or None) is baked directly into the video -
+                what you see during your presentation is exactly what appears in the downloaded file.
               </p>
+
+              <h3>How It Works</h3>
+              <ol>
+                <li>Click <strong>Present + Record</strong> and allow microphone access</li>
+                <li>Present as usual - a red recording indicator appears in the corner</li>
+                <li>When you exit the presentation, you're taken to the Recording Complete page</li>
+                <li>Preview your recording, then click <strong>Download</strong> to save as a WebM file</li>
+              </ol>
+
+              <h3>What Gets Recorded</h3>
+              <ul>
+                <li>All visual content (images, videos, animations, text slides)</li>
+                <li>Your selected background theme</li>
+                <li>Your voice (microphone audio)</li>
+                <li>The agent's voice</li>
+              </ul>
               <p>
-                This feature is currently in development.
+                Videos are recorded at 1080p / 30fps. The file stays in your browser until you download it -
+                nothing is uploaded to the cloud.
               </p>
             </section>
 
-            {/* Post Editing */}
+            {/* Auto Edit */}
             <section className="docs-section" id="post-editing">
-              <h2>Post Editing <span className="wip-tag">WIP</span></h2>
+              <h2>Auto Edit</h2>
               <p>
-                When you use <strong>Present + Record</strong>, you'll have access to automatic post-editing
-                after your session ends.
+                From the Recording Complete page, click <strong>Edit</strong> to open the editor.
+                The editor helps you automatically remove "dead time" from your recording -
+                moments where nothing meaningful is happening.
               </p>
+
+              <h3>What Is Dead Time?</h3>
               <p>
-                The post-editor automatically:
+                Dead time is any period where <strong>both</strong> of these conditions are true at the same time:
               </p>
               <ul>
-                <li>Detects and removes silence gaps caused by latency</li>
-                <li>Trims sections where no screen content was displayed</li>
-                <li>Cleans up pauses between agent responses</li>
-                <li>Produces a polished final video without awkward dead time</li>
+                <li><strong>Nobody is speaking</strong> - both you and the agent are silent</li>
+                <li><strong>Nothing is changing on screen</strong> - no new visuals, no video playing, no transitions</li>
               </ul>
               <p>
-                This addresses the natural latency that occurs during real-time AI conversations,
-                ensuring your final video feels smooth and professional.
+                This typically happens during latency gaps while waiting for the agent to respond,
+                or during pauses between sections. If either you or the agent is speaking, or if
+                any visual content is changing on screen, that time is kept.
+              </p>
+
+              <h3>How Auto Detect Works</h3>
+              <ol>
+                <li>Click <strong>Auto Detect</strong> to start the analysis</li>
+                <li>The system scans your audio for silence (using waveform analysis)</li>
+                <li>It simultaneously scans the video for static frames (pixel-level comparison)</li>
+                <li>Only segments where both audio is silent AND visuals are static are marked as dead time</li>
+                <li>Segments shorter than 2 seconds are ignored - only meaningful gaps are flagged</li>
+              </ol>
+
+              <h3>Reading the Timeline</h3>
+              <p>
+                After detection, a timeline bar appears below your video:
+              </p>
+              <ul>
+                <li><strong>Green segments</strong> - Active content that will be kept</li>
+                <li><strong>Red segments</strong> - Dead time that will be removed</li>
+                <li><strong>White line</strong> - Current playback position (moves as you play the original)</li>
+              </ul>
+              <p>
+                Hover over any segment to see its exact time range and type.
+              </p>
+
+              <h3>Trimming</h3>
+              <p>
+                Once you're satisfied with the detected segments, click <strong>Apply Trim</strong>.
+                This uses FFmpeg (running in your browser) to cut out the dead segments and stitch
+                the active parts together into a shorter video.
+              </p>
+              <p>
+                After trimming, you can switch between the <strong>Original</strong> and <strong>Trimmed</strong>
+                versions using the tabs above the video player. Both versions are available for download.
+              </p>
+
+              <h3>Video Content Protection</h3>
+              <p>
+                If your presentation includes video content (like Manim animations), those segments are
+                automatically protected - they will never be trimmed, even if there happens to be silence
+                during playback.
               </p>
             </section>
 
@@ -464,8 +524,7 @@ export default function DocumentationPage({ onBack }) {
 
               <h3>High Priority</h3>
               <ul>
-                <li><strong>Video Download</strong> - Download recorded sessions as video files</li>
-                <li><strong>Post Editing</strong> - Automatic silence and dead-time removal</li>
+                <li><strong>Advanced Editing</strong> - Manual timeline editing, drag to adjust trim points, select/deselect individual segments, and fine-tune cuts before exporting</li>
                 <li><strong>Reduce Latency</strong> - Faster response between agent speech and screen content</li>
                 <li><strong>Retain Conversation History</strong> - Continue planning conversations across sessions</li>
               </ul>

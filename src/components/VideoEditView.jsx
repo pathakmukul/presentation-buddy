@@ -136,6 +136,22 @@ export default function VideoEditView({ videoBlob, recordingDuration, videoPlayb
       </header>
 
       <div className="video-edit-content">
+        {/* Info note — shown before analysis */}
+        {!hasAnalysis && !isProcessing && (
+          <div className="edit-info-note">
+            <p>
+              <strong>Auto Detect</strong> scans your recording for dead time — moments where
+              nobody is speaking and nothing is changing on screen. These gaps are typically
+              caused by latency or pauses between sections.
+            </p>
+            <p>
+              After detection, a timeline shows <span className="info-green">green</span> segments
+              (kept) and <span className="info-red">red</span> segments (removed). Click Apply Trim
+              to produce a shorter version. Video content (animations, etc.) is always protected.
+            </p>
+          </div>
+        )}
+
         {/* Version toggle */}
         {hasTrimmed && (
           <div className="edit-version-toggle">
