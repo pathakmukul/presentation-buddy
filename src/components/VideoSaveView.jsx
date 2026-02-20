@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Download, Film, Loader } from 'lucide-react'
+import { ArrowLeft, Download, Film, Loader, Scissors } from 'lucide-react'
 
-export default function VideoSaveView({ videoBlob, recordingDuration, onBack, projectName }) {
+export default function VideoSaveView({ videoBlob, recordingDuration, onBack, onEdit, projectName }) {
   const videoRef = useRef(null)
   const [videoUrl, setVideoUrl] = useState(null)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -121,8 +121,9 @@ export default function VideoSaveView({ videoBlob, recordingDuration, onBack, pr
             <span>{isDownloading ? 'Downloading...' : 'Download'}</span>
           </button>
 
-          <button className="video-action-btn disabled" disabled>
-            <span>Edit (Coming Soon)</span>
+          <button className="video-action-btn secondary" onClick={onEdit} disabled={!videoBlob}>
+            <Scissors size={18} />
+            <span>Edit</span>
           </button>
 
           <button className="video-action-btn secondary" onClick={onBack}>

@@ -7,16 +7,16 @@ const CANVAS_HEIGHT = 1080
  * Hook for recording presentation by painting content onto a hidden canvas.
  * No getDisplayMedia — no prompts, no browser chrome, stays fullscreen.
  *
- * Accepts a ref to the presentation-mode DOM element and composites
- * the current visual state (images, videos, text) onto a 1920x1080 canvas
- * at 30fps, then records that canvas stream + mixed audio (mic + agent).
+ * Paints the selected theme (dots/lines/light/none) directly onto the canvas
+ * so themes are baked into the recorded video file.
  *
  * @param {Object} options
  * @param {React.RefObject} options.agentAudioElementRef - Ref to agent's <audio> element
  * @param {React.RefObject} options.presentationRef - Ref to the .presentation-mode DOM element
+ * @param {string} options.selectedPattern - Active theme pattern id ('none'|'dots'|'lines'|'light')
  * @returns {Object} Recording controls and state
  */
-export function useRecording({ agentAudioElementRef, presentationRef }) {
+export function useRecording({ agentAudioElementRef, presentationRef, selectedPattern }) {
   const [isRecording, setIsRecording] = useState(false)
   const [recordedBlob, setRecordedBlob] = useState(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
@@ -32,6 +32,9 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
   const stoppingRef = useRef(false)
   const animationFrameRef = useRef(null)
 
+  // Track when presented videos are playing (for edit/trim protection)
+  const videoPlaybackRangesRef = useRef([])
+  const videoPlayingRef = useRef(false) // is a video currently on screen?
   // Create the hidden canvas once
   useEffect(() => {
     const canvas = document.createElement('canvas')
@@ -48,27 +51,87 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
     }
   }, [])
 
+  // ─── Theme painting helpers ───
+
+  /**
+   * Paint dot grid pattern onto canvas.
+   * Replicates CSS: radial-gradient(circle, #333 1px, transparent 1px) at 20x20px, opacity 0.7
+   */
+  function paintDotsPattern(ctx) {
+    ctx.save()
+    ctx.globalAlpha = 0.7
+    ctx.fillStyle = '#333333'
+    const spacing = 20
+    for (let x = spacing; x < CANVAS_WIDTH; x += spacing) {
+      for (let y = spacing; y < CANVAS_HEIGHT; y += spacing) {
+        ctx.beginPath()
+        ctx.arc(x, y, 1, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    ctx.restore()
+  }
+
+  /**
+   * Paint lines pattern by copying the live .pattern-lines canvas from the DOM.
+   * The LinesPattern component in PresentationPatterns.jsx already animates
+   * its own canvas — we just drawImage() it onto the recording canvas each frame.
+   */
+  function paintLinesPattern(ctx, container) {
+    const linesCanvas = container?.querySelector('canvas.pattern-lines')
+    if (linesCanvas && linesCanvas.width > 0) {
+      ctx.drawImage(linesCanvas, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+    }
+  }
+
+  // ─── Content painting ───
+
   /**
    * Paint the current presentation state onto the hidden canvas.
    * Reads the DOM from presentationRef to find what's currently displayed.
+   * Paints theme background + pattern first, then content on top.
    */
   const paintFrame = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
+    const isLight = selectedPattern === 'light'
 
-    // Black background
-    ctx.fillStyle = '#000000'
+    // 1. Paint theme background
+    ctx.fillStyle = isLight ? '#f5f5f5' : '#000000'
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
     const container = presentationRef?.current
+
+    // 2. Paint pattern on top of background (behind content)
+    if (selectedPattern === 'dots') {
+      paintDotsPattern(ctx)
+    } else if (selectedPattern === 'lines') {
+      paintLinesPattern(ctx, container)
+    }
+
+    // 3. Paint content
     if (!container) return
 
-    // Check for video being displayed
+    // Check for video being displayed — and track playback time ranges
     const video = container.querySelector('video.presented-media')
-    if (video && video.readyState >= 2 && video.videoWidth > 0) {
+    const videoVisible = video && video.readyState >= 2 && video.videoWidth > 0
+    if (videoVisible) {
       drawMediaCentered(ctx, video, video.videoWidth, video.videoHeight)
+      // Track: video just appeared → record start time
+      if (!videoPlayingRef.current && startTimeRef.current) {
+        videoPlayingRef.current = true
+        const elapsed = (Date.now() - startTimeRef.current) / 1000
+        videoPlaybackRangesRef.current.push({ start: elapsed, end: null })
+      }
       return
+    } else if (videoPlayingRef.current) {
+      // Video just disappeared → record end time
+      videoPlayingRef.current = false
+      const ranges = videoPlaybackRangesRef.current
+      if (ranges.length > 0 && ranges[ranges.length - 1].end === null) {
+        ranges[ranges.length - 1].end = (Date.now() - startTimeRef.current) / 1000
+      }
     }
 
     // Check for image being displayed
@@ -81,10 +144,10 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
     // Check for text content (presented-text or section-background)
     const textEl = container.querySelector('.presented-text') || container.querySelector('.section-background')
     if (textEl) {
-      drawTextContent(ctx, textEl)
+      drawTextContent(ctx, textEl, isLight)
       return
     }
-  }, [presentationRef])
+  }, [presentationRef, selectedPattern])
 
   /**
    * Draw an image or video frame centered and fitted within the canvas,
@@ -124,8 +187,13 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
 
   /**
    * Draw text content onto the canvas by reading DOM text nodes.
+   * Uses theme-aware colors: light theme gets dark text, dark themes get light text.
    */
-  function drawTextContent(ctx, textEl) {
+  function drawTextContent(ctx, textEl, isLight) {
+    const titleColor = isLight ? '#1a1a1a' : '#e0e0e0'
+    const bodyColor = isLight ? '#333333' : '#cccccc'
+    const bulletDotColor = '#007aff'
+
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
 
@@ -135,7 +203,7 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
     const titleEl = textEl.querySelector('.text-title, .section-bg-title')
     if (titleEl) {
       ctx.font = 'bold 64px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-      ctx.fillStyle = '#e0e0e0'
+      ctx.fillStyle = titleColor
       const lines = wrapText(ctx, titleEl.textContent.trim(), CANVAS_WIDTH * 0.8)
       lines.forEach(line => {
         ctx.fillText(line, CANVAS_WIDTH / 2, yPos)
@@ -148,7 +216,7 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
     const bodyEl = textEl.querySelector('.text-body')
     if (bodyEl) {
       ctx.font = '32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-      ctx.fillStyle = '#cccccc'
+      ctx.fillStyle = bodyColor
       const lines = wrapText(ctx, bodyEl.textContent.trim(), CANVAS_WIDTH * 0.75)
       lines.forEach(line => {
         ctx.fillText(line, CANVAS_WIDTH / 2, yPos)
@@ -168,12 +236,12 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
       const items = pointsEl.querySelectorAll('li')
       items.forEach(li => {
         // Bullet dot
-        ctx.fillStyle = '#007aff'
+        ctx.fillStyle = bulletDotColor
         ctx.font = 'bold 28px sans-serif'
         ctx.fillText('•', startX, yPos)
 
         // Point text
-        ctx.fillStyle = '#cccccc'
+        ctx.fillStyle = bodyColor
         ctx.font = '28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
         const lines = wrapText(ctx, li.textContent.trim(), maxWidth)
         lines.forEach((line, i) => {
@@ -233,7 +301,7 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
 
   const cleanupStreams = useCallback(() => {
     stopRenderLoop()
-    if (micStreamRef.current) {
+if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach(t => t.stop())
       micStreamRef.current = null
     }
@@ -250,6 +318,15 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
   const stopRecording = useCallback(() => {
     if (stoppingRef.current) return
     stoppingRef.current = true
+
+    // Close any open video playback range
+    if (videoPlayingRef.current && startTimeRef.current) {
+      videoPlayingRef.current = false
+      const ranges = videoPlaybackRangesRef.current
+      if (ranges.length > 0 && ranges[ranges.length - 1].end === null) {
+        ranges[ranges.length - 1].end = (Date.now() - startTimeRef.current) / 1000
+      }
+    }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
@@ -273,6 +350,8 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
       setRecordingDuration(0)
       chunksRef.current = []
       stoppingRef.current = false
+      videoPlaybackRangesRef.current = []
+      videoPlayingRef.current = false
 
       const canvas = canvasRef.current
       if (!canvas) throw new Error('Recording canvas not initialized')
@@ -394,6 +473,7 @@ export function useRecording({ agentAudioElementRef, presentationRef }) {
     isRecording,
     recordedBlob,
     recordingDuration,
+    videoPlaybackRanges: videoPlaybackRangesRef.current,
     error,
     startRecording,
     stopRecording,

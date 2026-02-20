@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { useVoiceAgent } from '../hooks/useVoiceAgent'
 import { useRecording } from '../hooks/useRecording'
 import VideoSaveView from '../components/VideoSaveView'
+import VideoEditView from '../components/VideoEditView'
 import './ProjectPage.css'
 
 export default function ProjectPage({ project, user, onBack, onUpdateProject }) {
@@ -34,6 +35,7 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   const [cachedAssetUrls, setCachedAssetUrls] = useState({}) // Maps asset.id -> cached blob URL
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0) // Background section layer
   const [videoSaveMode, setVideoSaveMode] = useState(false)
+  const [videoEditMode, setVideoEditMode] = useState(false)
   const [selectedPattern, setSelectedPattern] = useState(() => {
     // Load from localStorage, default to 'none'
     return localStorage.getItem('presentationPattern') || 'none'
@@ -52,7 +54,8 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   // Recording
   const recording = useRecording({
     agentAudioElementRef: presenterAgent.agentAudioElementRef,
-    presentationRef: presentationModeRef
+    presentationRef: presentationModeRef,
+    selectedPattern
   })
 
   // Save pattern selection to localStorage
@@ -868,6 +871,19 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
     return `${m}:${s.toString().padStart(2, '0')}`
   }
 
+  // Video edit mode — show edit view
+  if (videoEditMode) {
+    return (
+      <VideoEditView
+        videoBlob={recording.recordedBlob}
+        recordingDuration={recording.recordingDuration}
+        videoPlaybackRanges={recording.videoPlaybackRanges}
+        projectName={project.name}
+        onBack={() => setVideoEditMode(false)}
+      />
+    )
+  }
+
   // Video save mode — show save view instead of project
   if (videoSaveMode) {
     return (
@@ -875,6 +891,7 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
         videoBlob={recording.recordedBlob}
         recordingDuration={recording.recordingDuration}
         projectName={project.name}
+        onEdit={() => setVideoEditMode(true)}
         onBack={() => {
           recording.clearRecording()
           setVideoSaveMode(false)

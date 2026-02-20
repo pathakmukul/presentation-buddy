@@ -111,6 +111,14 @@ export default function LoginPage() {
 
       {/* Right Panel - Branding */}
       <div className="login-right">
+        {/* Ribbon banner — disabled, kept for reference */}
+        {/* <div className="login-banner">...</div> */}
+
+        <div className="login-prompt-pill">
+          <span className="login-prompt-label">PROMPT:</span>
+          <span className="login-prompt-text">Make the presenter look good.</span>
+        </div>
+
         <div className="login-dots-a" />
         <div className="login-dots-b" />
 
@@ -162,6 +170,7 @@ export default function LoginPage() {
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </div>
