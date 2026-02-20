@@ -1543,3 +1543,185 @@ video.presented-media::-webkit-media-controls-panel {
   font-weight: 600;
 }
 
+/* ==========================================
+   Recording Badge (during presentation)
+   ========================================== */
+.recording-badge {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 20px;
+  color: #ef4444;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: monospace;
+  z-index: 10000;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.recording-badge .rec-dot {
+  animation: pulse-red 1.2s ease-in-out infinite;
+}
+
+.recording-error-badge {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  color: #ef4444;
+  font-size: 13px;
+  z-index: 10000;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  max-width: 400px;
+  text-align: center;
+}
+
+/* ==========================================
+   Video Save View
+   ========================================== */
+.video-save-container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  color: #e0e0e0;
+}
+
+.video-save-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 40px;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.video-save-header h1 {
+  font-size: 20px;
+  color: #e0e0e0;
+  font-weight: 600;
+  margin: 0;
+}
+
+.video-save-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  gap: 30px;
+}
+
+.video-preview-wrapper {
+  width: 100%;
+  max-width: 960px;
+  aspect-ratio: 16 / 9;
+  background: #0a0a0a;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #2a2a2a;
+}
+
+.video-preview-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  transition: opacity 0.3s ease;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.video-loading-spinner {
+  animation: spin 1.2s linear infinite;
+  color: #666;
+}
+
+.video-preview-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #444;
+}
+
+.video-meta {
+  display: flex;
+  gap: 24px;
+  font-size: 14px;
+  color: #666;
+}
+
+.meta-item {
+  font-family: monospace;
+}
+
+.video-save-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.video-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid #3a3a3a;
+  background: transparent;
+}
+
+.video-action-btn.primary {
+  background: #007AFF;
+  border-color: #007AFF;
+  color: white;
+}
+
+.video-action-btn.primary:hover {
+  background: #0066CC;
+}
+
+.video-action-btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.video-action-btn.secondary {
+  background: #2a2a2a;
+  color: #e0e0e0;
+}
+
+.video-action-btn.secondary:hover {
+  background: #3a3a3a;
+}
+
+.video-action-btn.disabled {
+  background: #1a1a1a;
+  color: #555;
+  cursor: not-allowed;
+  pointer-events: none;
+  border-color: #2a2a2a;
+}
+

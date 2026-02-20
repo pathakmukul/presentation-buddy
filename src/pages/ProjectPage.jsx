@@ -4,6 +4,8 @@ import { PresentationPattern, PatternSelector, isLightPattern } from '../compone
 import { updateMessageOpacity } from '../utils/fadeMessages'
 import { supabase } from '../lib/supabase'
 import { useVoiceAgent } from '../hooks/useVoiceAgent'
+import { useRecording } from '../hooks/useRecording'
+import VideoSaveView from '../components/VideoSaveView'
 import './ProjectPage.css'
 
 export default function ProjectPage({ project, user, onBack, onUpdateProject }) {
@@ -31,6 +33,7 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   const [isCachingAssets, setIsCachingAssets] = useState(false)
   const [cachedAssetUrls, setCachedAssetUrls] = useState({}) // Maps asset.id -> cached blob URL
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0) // Background section layer
+  const [videoSaveMode, setVideoSaveMode] = useState(false)
   const [selectedPattern, setSelectedPattern] = useState(() => {
     // Load from localStorage, default to 'none'
     return localStorage.getItem('presentationPattern') || 'none'
@@ -40,10 +43,17 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
   const projectIdRef = useRef(null)
   const presentDropdownRef = useRef(null)
   const fileInputRef = useRef(null)
+  const presentationModeRef = useRef(null)
 
   // Voice agents
   const voiceAgent = useVoiceAgent() // Planning agent for create mode
   const presenterAgent = useVoiceAgent() // Presenter agent for presentation mode
+
+  // Recording
+  const recording = useRecording({
+    agentAudioElementRef: presenterAgent.agentAudioElementRef,
+    presentationRef: presentationModeRef
+  })
 
   // Save pattern selection to localStorage
   useEffect(() => {
@@ -398,6 +408,16 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
 
   // Presentation mode handlers
   const startPresentation = async (withRecording = false) => {
+    // If recording, acquire mic permission BEFORE entering fullscreen
+    let micStream = null
+    if (withRecording) {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch (err) {
+        console.warn('Mic permission denied, recording without mic:', err)
+      }
+    }
+
     // Cache all assets first
     await cacheAllAssets()
 
@@ -453,16 +473,27 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
     } catch (err) {
       console.error('Failed to connect presenter agent:', err)
     }
+
+    // Start recording — small delay for DOM refs to be attached
+    if (withRecording) {
+      setTimeout(() => recording.startRecording(micStream), 300)
+    }
   }
 
   const exitPresentMode = async () => {
-    // Disconnect presenter agent first
+    const wasRecording = recording.isRecording
+
+    // Stop recording first if active
+    if (wasRecording) {
+      recording.stopRecording()
+    }
+
+    // Disconnect presenter agent
     if (presenterAgent.isConnected) {
       await presenterAgent.disconnect()
     }
 
     setIsPresentMode(false)
-    setShouldRecord(false)
     setDisplayedContent(null)
     setDisplayedText(null)
 
@@ -473,6 +504,15 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
     if (document.fullscreenElement) {
       document.exitFullscreen()
     }
+
+    // If was recording, go to video save view after blob is produced
+    if (wasRecording) {
+      setTimeout(() => {
+        setVideoSaveMode(true)
+      }, 500)
+    }
+
+    setShouldRecord(false)
   }
 
   // Client action handlers for presenter agent
@@ -572,6 +612,17 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
       presenterAgent.onClientAction(null)
     }
   }, [isPresentMode, contentAssets, presenterAgent])
+
+  // Handle fullscreen exit (e.g., user presses Escape)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && isPresentMode) {
+        exitPresentMode()
+      }
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [isPresentMode])
 
   // Mouse tracking for present controls
   const hideControlsTimeoutRef = useRef(null)
@@ -811,6 +862,27 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
     }
   }, [project.presentation_id])
 
+  const formatDuration = (seconds) => {
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    return `${m}:${s.toString().padStart(2, '0')}`
+  }
+
+  // Video save mode — show save view instead of project
+  if (videoSaveMode) {
+    return (
+      <VideoSaveView
+        videoBlob={recording.recordedBlob}
+        recordingDuration={recording.recordingDuration}
+        projectName={project.name}
+        onBack={() => {
+          recording.clearRecording()
+          setVideoSaveMode(false)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="project-container">
       {/* Hidden file input for uploads */}
@@ -895,13 +967,14 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
                 <span>Present</span>
               </div>
               <div
-                className="present-dropdown-item disabled"
+                className="present-dropdown-item"
+                onClick={() => startPresentation(true)}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Play size={16} />
                   <span style={{ fontSize: '12px', color: '#ef4444' }}>●</span>
                 </div>
-                <span>Present + Record <span style={{ opacity: 0.5 }}>(WIP)</span></span>
+                <span>Present + Record</span>
               </div>
             </div>
           )}
@@ -1253,7 +1326,7 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
 
       {/* Presentation Mode */}
       {isPresentMode && (
-        <div className="presentation-mode">
+        <div className="presentation-mode" ref={presentationModeRef}>
           {/* Background Pattern */}
           <PresentationPattern patternId={selectedPattern} />
 
@@ -1324,6 +1397,21 @@ export default function ProjectPage({ project, user, onBack, onUpdateProject }) 
               )
             )}
           </div>
+
+          {/* Recording badge — always visible when recording */}
+          {recording.isRecording && (
+            <div className="recording-badge">
+              <span className="rec-dot">●</span>
+              <span>{formatDuration(recording.recordingDuration)}</span>
+            </div>
+          )}
+
+          {/* Recording error notification */}
+          {recording.error && (
+            <div className="recording-error-badge">
+              {recording.error}
+            </div>
+          )}
 
           <div className={`presentation-controls ${showPresentControls ? 'visible' : ''}`}>
             {/* Play/Pause Agent - mutes both mic and agent audio */}

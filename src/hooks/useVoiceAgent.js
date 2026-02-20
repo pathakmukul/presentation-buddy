@@ -467,6 +467,9 @@ export function useVoiceAgent() {
     sendActionToAgent,
     onClientAction,
 
+    // Refs for recording
+    agentAudioElementRef,
+
     // Get current context
     getContext: () => contextRef.current
   }
